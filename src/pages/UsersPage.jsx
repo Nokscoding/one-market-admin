@@ -38,24 +38,40 @@ function CreateUserModal({ open, onClose, onDone }) {
   const [message, setMessage] = useState('')
   if (!open) return null
 
+  const availableStaffRoles = form.marketplace_role === 'client' ? STAFF_ROLES.filter(role => role !== 'SUPER_ADMIN') : STAFF_ROLES
+
   async function submit(event) {
     event.preventDefault()
+    if (form.marketplace_role === 'client' && form.staff_role === 'SUPER_ADMIN') {
+      setMessage('Un compte client ne peut pas être DG / Super Admin.')
+      return
+    }
     setBusy(true)
     setMessage('')
     const { data, error } = await supabase.functions.invoke('erp-create-user', { body: { ...form, staff_role: form.staff_role || null } })
-    if (error || data?.error) setMessage(data?.error || error?.message || 'Impossible de créer le compte.')
-    else onDone()
+    if (error || data?.error) {
+      const code = data?.error || error?.message || ''
+      setMessage(code === 'CLIENT_CANNOT_BE_SUPER_ADMIN' ? 'Un compte client ne peut pas être DG / Super Admin.' : code || 'Impossible de créer le compte.')
+    } else onDone()
     setBusy(false)
   }
 
+  function setMarketplaceRole(value) {
+    setForm(current => ({
+      ...current,
+      marketplace_role: value,
+      staff_role: value === 'client' && current.staff_role === 'SUPER_ADMIN' ? '' : current.staff_role,
+    }))
+  }
+
   return <div className="modal-backdrop"><form className="modal" onSubmit={submit}>
-    <div className="modal-head"><div><h3>Créer un utilisateur</h3><p>Le DG peut créer un compte One Market et lui donner, si nécessaire, un accès ERP.</p></div><button type="button" onClick={onClose}>×</button></div>
+    <div className="modal-head"><div><h3>Créer un utilisateur</h3><p>Le DG peut créer un compte One Market et lui donner, si nécessaire, un accès ERP. Un client ne peut jamais être DG / Super Admin.</p></div><button type="button" onClick={onClose}>×</button></div>
     <div className="form-grid">
       <label>Nom complet<input required value={form.full_name} onChange={event => setForm({ ...form, full_name: event.target.value })}/></label>
       <label>Email<input required type="email" value={form.email} onChange={event => setForm({ ...form, email: event.target.value })}/></label>
       <label>Mot de passe initial<input required type="password" minLength={8} value={form.password} onChange={event => setForm({ ...form, password: event.target.value })}/></label>
-      <label>Rôle marketplace<select value={form.marketplace_role} onChange={event => setForm({ ...form, marketplace_role: event.target.value })}>{MARKETPLACE_ROLES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
-      <label className="wide">Accès ERP<select value={form.staff_role} onChange={event => setForm({ ...form, staff_role: event.target.value })}><option value="">Aucun accès ERP</option>{STAFF_ROLES.map(role => <option key={role} value={role}>{ROLE_LABELS[role]}</option>)}</select></label>
+      <label>Rôle marketplace<select value={form.marketplace_role} onChange={event => setMarketplaceRole(event.target.value)}>{MARKETPLACE_ROLES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+      <label className="wide">Accès ERP<select value={form.staff_role} onChange={event => setForm({ ...form, staff_role: event.target.value })}><option value="">Aucun accès ERP</option>{availableStaffRoles.map(role => <option key={role} value={role}>{ROLE_LABELS[role]}</option>)}</select></label>
     </div>
     {message && <div className="alert bad">{message}</div>}
     <div className="modal-actions"><button type="button" className="btn ghost" onClick={onClose}>Annuler</button><button className="btn primary" disabled={busy}>{busy ? 'Création…' : 'Créer le compte'}</button></div>
