@@ -10,18 +10,24 @@ export function StoresPage() {
   const { staff } = useAuth()
   const [search, setSearch] = useState('')
   const { data, loading, reload } = useLoad(async () => {
-    const { data: stores, error } = await supabase.from('stores').select('*').order('created_at', { ascending: false })
+    const [{ data: stores, error }, { data: rates }, { data: commerce }] = await Promise.all([
+      supabase.from('stores').select('*').order('created_at', { ascending: false }),
+      supabase.from('store_commission_rates').select('*'),
+      supabase.from('marketplace_settings').select('value').eq('key', 'commerce').maybeSingle(),
+    ])
     if (error) throw error
-    return stores || []
+    const rateMap = Object.fromEntries((rates || []).map(rate => [rate.store_id, Number(rate.commission_percent)]))
+    return { stores: stores || [], rates: rateMap, defaultCommission: Number(commerce?.value?.default_commission_percent || 0) }
   }, [])
 
-  const visible = useMemo(() => (data || []).filter(store => !search || `${store.name} ${store.city || ''}`.toLowerCase().includes(search.toLowerCase())), [data, search])
+  const visible = useMemo(() => (data?.stores || []).filter(store => !search || `${store.name} ${store.city || ''}`.toLowerCase().includes(search.toLowerCase())), [data, search])
 
   async function setTrust(store, kind) {
     const partner = kind === 'partner' ? !store.is_partner : store.is_partner
     const verified = kind === 'verified' ? !store.is_verified : store.is_verified
     const { error } = await supabase.rpc('erp_set_store_trust', { p_store_id: store.id, p_verified: verified, p_partner: partner })
-    if (!error) reload()
+    if (error) window.alert(error.message)
+    else reload()
   }
 
   async function toggleStatus(store) {
@@ -29,17 +35,32 @@ export function StoresPage() {
     const reason = nextStatus === 'suspended' ? window.prompt('Motif de suspension :') : 'Réactivation ERP'
     if (nextStatus === 'suspended' && !reason) return
     const { error } = await supabase.rpc('erp_set_store_status', { p_store_id: store.id, p_status: nextStatus, p_reason: reason })
-    if (!error) reload()
+    if (error) window.alert(error.message)
+    else reload()
+  }
+
+  async function editCommission(store) {
+    if (staff?.staff_role !== 'SUPER_ADMIN') return
+    const current = data?.rates?.[store.id] ?? data?.defaultCommission ?? 0
+    const value = Number(window.prompt(`Commission One Market pour ${store.name} (%) :`, current))
+    if (!Number.isFinite(value) || value < 0 || value > 100) return
+    const { error } = await supabase.rpc('erp_set_store_commission', { p_store_id: store.id, p_percent: value })
+    if (error) window.alert(error.message)
+    else reload()
   }
 
   return <>
-    <SectionHead eyebrow="Marketplace" title="Boutiques" desc="Vérification, partenariat et statut des boutiques."/>
+    <SectionHead eyebrow="Marketplace" title="Boutiques" desc="Vérification, partenariat, statut et commission des boutiques."/>
     <SearchBar value={search} onChange={setSearch} placeholder="Rechercher une boutique"/>
-    {loading ? <Loader/> : <div className="cards-list">{visible.length ? visible.map(store => <article className="store-row" key={store.id}>
-      <div className="store-logo">{store.logo_url ? <img src={store.logo_url} alt=""/> : <Store size={21}/>}</div>
-      <div className="grow"><div className="inline-title"><strong>{store.name}</strong>{store.is_partner ? <span className="trust gold">◆ Partenaire</span> : store.is_verified ? <span className="trust blue"><BadgeCheck size={14}/> Vérifiée</span> : null}</div><span>{store.city || '—'} · {store.status}</span></div>
-      <div className="button-row compact"><button className="btn ghost" type="button" onClick={() => setTrust(store, 'verified')}>{store.is_verified ? 'Retirer vérification' : 'Vérifier'}</button>{staff?.staff_role === 'SUPER_ADMIN' && <button className="btn gold" type="button" onClick={() => setTrust(store, 'partner')}>{store.is_partner ? 'Retirer partenaire' : 'Partenaire'}</button>}<button className={`btn ${store.status === 'active' ? 'danger' : 'primary'}`} type="button" onClick={() => toggleStatus(store)}>{store.status === 'active' ? 'Suspendre' : 'Activer'}</button></div>
-    </article>) : <Empty/>}</div>}
+    {loading ? <Loader/> : <div className="cards-list">{visible.length ? visible.map(store => {
+      const commission = data?.rates?.[store.id] ?? data?.defaultCommission ?? 0
+      const customCommission = data?.rates?.[store.id] !== undefined
+      return <article className="store-row" key={store.id}>
+        <div className="store-logo">{store.logo_url ? <img src={store.logo_url} alt=""/> : <Store size={21}/>}</div>
+        <div className="grow"><div className="inline-title"><strong>{store.name}</strong>{store.is_partner ? <span className="trust gold">◆ Partenaire</span> : store.is_verified ? <span className="trust blue"><BadgeCheck size={14}/> Vérifiée</span> : null}</div><span>{store.city || '—'} · {store.status}</span><small>Commission : {commission.toFixed(2)} % {customCommission ? '· spécifique' : '· défaut global'}</small></div>
+        <div className="button-row compact"><button className="btn ghost" type="button" onClick={() => setTrust(store, 'verified')}>{store.is_verified ? 'Retirer vérification' : 'Vérifier'}</button>{staff?.staff_role === 'SUPER_ADMIN' && <><button className="btn gold" type="button" onClick={() => setTrust(store, 'partner')}>{store.is_partner ? 'Retirer partenaire' : 'Partenaire'}</button><button className="btn ghost" type="button" onClick={() => editCommission(store)}>Commission</button></>}<button className={`btn ${store.status === 'active' ? 'danger' : 'primary'}`} type="button" onClick={() => toggleStatus(store)}>{store.status === 'active' ? 'Suspendre' : 'Activer'}</button></div>
+      </article>
+    }) : <Empty/>}</div>}
   </>
 }
 
@@ -61,7 +82,8 @@ export function ProductsPage() {
     const reason = !nextActive ? window.prompt('Motif du masquage :') : 'Réactivation ERP'
     if (!nextActive && !reason) return
     const { error } = await supabase.rpc('erp_moderate_product', { p_product_id: product.id, p_active: nextActive, p_reason: reason })
-    if (!error) reload()
+    if (error) window.alert(error.message)
+    else reload()
   }
 
   return <>
