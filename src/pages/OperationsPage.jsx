@@ -1,11 +1,23 @@
 import { useState } from 'react'
 import { NavLink, useParams } from 'react-router-dom'
-import { Banknote, CheckCircle2, Clock3, Package, Truck, Zap } from 'lucide-react'
+import { Banknote, Clock3, Truck, Zap } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 import { cdf, dateTime, ORDER_LABELS, usd } from '../lib/format'
 import { useLoad } from '../lib/useLoad'
 import { Badge, Empty, Info, Loader, SectionHead, Table } from '../components/UI'
+
+function paymentLabel(order) {
+  if (order.payment_method === 'mobile_money') {
+    return {
+      awaiting_mobile_money: 'À finaliser',
+      payment_submitted: 'Soumis',
+      paid: 'Payé',
+      cancelled: 'Annulé',
+    }[order.payment_status] || order.payment_status
+  }
+  return order.payment_status === 'cash_received' ? 'Encaissé' : order.payment_status === 'cancelled' ? 'Annulé' : 'À payer au livreur'
+}
 
 export function OrdersPage() {
   const [status, setStatus] = useState('all')
@@ -18,14 +30,15 @@ export function OrdersPage() {
   }, [status])
 
   return <>
-    <SectionHead eyebrow="Opérations" title="Commandes" desc="Commandes, paiement à la livraison et flux multi-boutiques."/>
+    <SectionHead eyebrow="Opérations" title="Commandes" desc="Commandes, moyens de paiement et flux multi-boutiques."/>
     <div className="filter-row">{['all','pending_confirmation','confirmed','preparing','ready','out_for_delivery','delivered','cancelled'].map(item => <button type="button" className={status === item ? 'active' : ''} onClick={() => setStatus(item)} key={item}>{item === 'all' ? 'Toutes' : ORDER_LABELS[item]}</button>)}</div>
-    {loading ? <Loader/> : <Table headers={['Commande','Date','Statut','Livraison','Paiement','Produits','']} rows={(data || []).map(order => [
+    {loading ? <Loader/> : <Table headers={['Commande','Date','Statut','Livraison','Méthode','Paiement','Produits','']} rows={(data || []).map(order => [
       order.order_number,
       dateTime(order.created_at),
       <Badge value={order.status} label={ORDER_LABELS[order.status]}/>,
       `${order.delivery_method === 'express' ? 'Express' : 'Normale'} · ${cdf(order.delivery_fee_cdf)}`,
-      <Badge value={order.payment_status} label={order.payment_status === 'cash_received' ? 'Encaissé' : 'À encaisser'}/>,
+      order.payment_method === 'mobile_money' ? 'Mobile Money' : 'À la livraison',
+      <Badge value={order.payment_status} label={paymentLabel(order)}/>,
       usd(order.items_total),
       <NavLink className="row-link" to={`/orders/${order.id}`}>Ouvrir</NavLink>,
     ])}/>} 
@@ -52,16 +65,21 @@ export function OrderDetailPage() {
   const order = data.order
   const canManageFinance = can('finance.manage') || staff?.staff_role === 'SUPER_ADMIN'
 
-  async function togglePayment() {
-    const next = order.payment_status === 'cash_received' ? 'pending_on_delivery' : 'cash_received'
+  async function changePayment() {
+    const allowed = order.payment_method === 'mobile_money'
+      ? ['awaiting_mobile_money','payment_submitted','paid','cancelled']
+      : ['pending_on_delivery','cash_received','cancelled']
+    const next = window.prompt(`Statut paiement (${allowed.join(' / ')}) :`, order.payment_status)
+    if (!next || !allowed.includes(next)) return
     const { error } = await supabase.rpc('erp_set_payment_status', { p_order_id: id, p_status: next })
-    if (!error) reload()
+    if (error) window.alert(error.message)
+    else reload()
   }
 
   return <>
-    <SectionHead eyebrow="Commande" title={order.order_number} desc={dateTime(order.created_at)} actions={canManageFinance && <button className="btn primary" type="button" onClick={togglePayment}><Banknote size={17}/>{order.payment_status === 'cash_received' ? 'Remettre à encaisser' : 'Marquer encaissé'}</button>}/>
+    <SectionHead eyebrow="Commande" title={order.order_number} desc={dateTime(order.created_at)} actions={canManageFinance && <button className="btn primary" type="button" onClick={changePayment}><Banknote size={17}/>Gérer le paiement</button>}/>
     <div className="detail-grid">
-      <section className="panel detail-card"><h3>Résumé</h3><Info label="Statut" value={<Badge value={order.status} label={ORDER_LABELS[order.status]}/>}/><Info label="Produits" value={usd(order.items_total)}/><Info label="Livraison" value={`${order.delivery_method === 'express' ? 'Express' : 'Normale'} · ${cdf(order.delivery_fee_cdf)}`}/><Info label="Paiement" value={order.payment_status === 'cash_received' ? 'Encaissé' : 'À payer au livreur'}/><Info label="Logistique" value={order.logistics_status}/></section>
+      <section className="panel detail-card"><h3>Résumé</h3><Info label="Statut" value={<Badge value={order.status} label={ORDER_LABELS[order.status]}/>}/><Info label="Produits" value={usd(order.items_total)}/><Info label="Livraison" value={`${order.delivery_method === 'express' ? 'Express' : 'Normale'} · ${cdf(order.delivery_fee_cdf)}`}/><Info label="Méthode" value={order.payment_method === 'mobile_money' ? 'Mobile Money' : 'Paiement à la livraison'}/><Info label="Paiement" value={paymentLabel(order)}/><Info label="Logistique" value={order.logistics_status}/></section>
       <section className="panel detail-card"><h3>Livraison</h3><Info label="Client" value={order.shipping_snapshot?.full_name || '—'}/><Info label="Téléphone" value={order.shipping_snapshot?.phone || '—'}/><Info label="Adresse" value={[order.shipping_snapshot?.address_line1, order.shipping_snapshot?.district, order.shipping_snapshot?.city].filter(Boolean).join(', ') || '—'}/><Info label="Note" value={order.customer_note || '—'}/></section>
     </div>
 
