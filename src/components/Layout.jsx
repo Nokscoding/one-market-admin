@@ -6,6 +6,7 @@ import {
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { ROLE_LABELS } from '../lib/roles'
+import AdminNotifications from './AdminNotifications'
 
 const NAV = [
   ['/', LayoutDashboard, 'Tableau de bord', null],
@@ -53,7 +54,7 @@ export default function Layout() {
       <header className="topbar">
         <button className="menu-btn" type="button" onClick={() => setOpen(true)}><Menu size={20}/></button>
         <div><strong>{current?.[2] || 'One Market ERP'}</strong><span>Administration & Operations</span></div>
-        <div className="topbar-right"><span className="secure-chip"><ShieldCheck size={15}/> Session sécurisée</span></div>
+        <div className="topbar-right"><AdminNotifications/><span className="secure-chip"><ShieldCheck size={15}/> Session sécurisée</span></div>
       </header>
       <main className="page"><Outlet/></main>
     </div>
