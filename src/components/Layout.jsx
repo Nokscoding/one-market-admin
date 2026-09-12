@@ -7,6 +7,7 @@ import {
 import { useAuth } from '../context/AuthContext'
 import { ROLE_LABELS } from '../lib/roles'
 import AdminNotifications from './AdminNotifications'
+import PushPermissionPrompt from './PushPermissionPrompt'
 
 const NAV = [
   ['/', LayoutDashboard, 'Tableau de bord', null],
@@ -58,5 +59,6 @@ export default function Layout() {
       </header>
       <main className="page"><Outlet/></main>
     </div>
+    <PushPermissionPrompt/>
   </div>
 }
