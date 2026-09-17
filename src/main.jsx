@@ -4,6 +4,7 @@ import { BrowserRouter } from 'react-router-dom'
 import App from './App'
 import { AuthProvider } from './context/AuthContext'
 import './styles.css'
+import './admin-v2.css'
 import './notifications.css'
 import './push.css'
 

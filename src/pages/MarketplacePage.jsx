@@ -2,101 +2,45 @@ import { useMemo, useState } from 'react'
 import { BadgeCheck, Store } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
-import { usd } from '../lib/format'
+import { dateTime, usd } from '../lib/format'
 import { useLoad } from '../lib/useLoad'
-import { Badge, Empty, Loader, SearchBar, SectionHead, Table } from '../components/UI'
+import { Badge, ConfirmModal, Loader, Metric, SearchBar, SectionHead, Table } from '../components/UI'
 
 export function StoresPage() {
   const { staff } = useAuth()
+  const superAdmin = staff?.staff_role === 'SUPER_ADMIN'
   const [search, setSearch] = useState('')
-  const { data, loading, reload } = useLoad(async () => {
-    const [{ data: stores, error }, { data: rates }, { data: commerce }] = await Promise.all([
-      supabase.from('stores').select('*').order('created_at', { ascending: false }),
-      supabase.from('store_commission_rates').select('*'),
-      supabase.from('marketplace_settings').select('value').eq('key', 'commerce').maybeSingle(),
-    ])
-    if (error) throw error
-    const rateMap = Object.fromEntries((rates || []).map(rate => [rate.store_id, Number(rate.commission_percent)]))
-    return { stores: stores || [], rates: rateMap, defaultCommission: Number(commerce?.value?.default_commission_percent || 0) }
-  }, [])
+  const [status, setStatus] = useState('')
+  const [selected, setSelected] = useState(null)
+  const [modal, setModal] = useState(null)
+  const [value, setValue] = useState('')
+  const [actionError, setActionError] = useState('')
+  const { data, loading, error, reload } = useLoad(async () => { const {data:stores,error}=await supabase.rpc('erp_stores_overview',{p_search:search||null,p_status:status||null,p_limit:250,p_offset:0}); if(error)throw error; return stores||[] }, [search,status])
 
-  const visible = useMemo(() => (data?.stores || []).filter(store => !search || `${store.name} ${store.city || ''}`.toLowerCase().includes(search.toLowerCase())), [data, search])
-
-  async function setTrust(store, kind) {
-    const partner = kind === 'partner' ? !store.is_partner : store.is_partner
-    const verified = kind === 'verified' ? !store.is_verified : store.is_verified
-    const { error } = await supabase.rpc('erp_set_store_trust', { p_store_id: store.id, p_verified: verified, p_partner: partner })
-    if (error) window.alert(error.message)
-    else reload()
-  }
-
-  async function toggleStatus(store) {
-    const nextStatus = store.status === 'active' ? 'suspended' : 'active'
-    const reason = nextStatus === 'suspended' ? window.prompt('Motif de suspension :') : 'Réactivation ERP'
-    if (nextStatus === 'suspended' && !reason) return
-    const { error } = await supabase.rpc('erp_set_store_status', { p_store_id: store.id, p_status: nextStatus, p_reason: reason })
-    if (error) window.alert(error.message)
-    else reload()
-  }
-
-  async function editCommission(store) {
-    if (staff?.staff_role !== 'SUPER_ADMIN') return
-    const current = data?.rates?.[store.id] ?? data?.defaultCommission ?? 0
-    const value = Number(window.prompt(`Commission One Market pour ${store.name} (%) :`, current))
-    if (!Number.isFinite(value) || value < 0 || value > 100) return
-    const { error } = await supabase.rpc('erp_set_store_commission', { p_store_id: store.id, p_percent: value })
-    if (error) window.alert(error.message)
-    else reload()
-  }
-
+  async function openFinance(store) { setActionError(''); const {data,error}=await supabase.rpc('erp_store_financials',{p_store_id:store.id,p_from:null,p_to:null}); if(error)return setActionError(error.message); setSelected({...store,finance:data}) }
+  async function setTrust(store,kind) { setActionError(''); const {error}=await supabase.rpc('erp_set_store_trust',{p_store_id:store.id,p_verified:kind==='verified'?!store.is_verified:store.is_verified,p_partner:kind==='partner'?!store.is_partner:store.is_partner}); if(error)return setActionError(error.message); reload() }
+  function changeStatus(store) { setActionError(''); setValue(''); setModal({type:'status',store}) }
+  async function saveStatus() { setActionError(''); const next=modal.store.status==='active'?'suspended':'active'; const {error}=await supabase.rpc('erp_set_store_status',{p_store_id:modal.store.id,p_status:next,p_reason:value||'Réactivation ERP'}); if(error)return setActionError(error.message); setModal(null); reload() }
+  function commission(store) { setActionError(''); setValue(String(store.commission_percent||0)); setModal({type:'commission',store}) }
+  async function saveCommission() { const n=Number(value); if(!Number.isFinite(n)||n<0||n>100)return setActionError('La commission doit être comprise entre 0 et 100 %.'); setActionError(''); const {error}=await supabase.rpc('erp_set_store_commission',{p_store_id:modal.store.id,p_percent:n}); if(error)return setActionError(error.message); setModal(null); reload() }
+  async function clearCommission(store) { setActionError(''); const {error}=await supabase.rpc('erp_clear_store_commission',{p_store_id:store.id}); if(error)return setActionError(error.message); setSelected(null); reload() }
+  if(loading)return <Loader/>
   return <>
-    <SectionHead eyebrow="Marketplace" title="Boutiques" desc="Vérification, partenariat, statut et commission des boutiques."/>
-    <SearchBar value={search} onChange={setSearch} placeholder="Rechercher une boutique"/>
-    {loading ? <Loader/> : <div className="cards-list">{visible.length ? visible.map(store => {
-      const commission = data?.rates?.[store.id] ?? data?.defaultCommission ?? 0
-      const customCommission = data?.rates?.[store.id] !== undefined
-      return <article className="store-row" key={store.id}>
-        <div className="store-logo">{store.logo_url ? <img src={store.logo_url} alt=""/> : <Store size={21}/>}</div>
-        <div className="grow"><div className="inline-title"><strong>{store.name}</strong>{store.is_partner ? <span className="trust gold">◆ Partenaire</span> : store.is_verified ? <span className="trust blue"><BadgeCheck size={14}/> Vérifiée</span> : null}</div><span>{store.city || '—'} · {store.status}</span><small>Commission : {commission.toFixed(2)} % {customCommission ? '· spécifique' : '· défaut global'}</small></div>
-        <div className="button-row compact"><button className="btn ghost" type="button" onClick={() => setTrust(store, 'verified')}>{store.is_verified ? 'Retirer vérification' : 'Vérifier'}</button>{staff?.staff_role === 'SUPER_ADMIN' && <><button className="btn gold" type="button" onClick={() => setTrust(store, 'partner')}>{store.is_partner ? 'Retirer partenaire' : 'Partenaire'}</button><button className="btn ghost" type="button" onClick={() => editCommission(store)}>Commission</button></>}<button className={`btn ${store.status === 'active' ? 'danger' : 'primary'}`} type="button" onClick={() => toggleStatus(store)}>{store.status === 'active' ? 'Suspendre' : 'Activer'}</button></div>
-      </article>
-    }) : <Empty/>}</div>}
+    <SectionHead eyebrow="Marketplace" title="Boutiques" desc="Performance, commission, statut, vérification et solde vendeur."/>
+    <div className="toolbar-row"><SearchBar value={search} onChange={setSearch} placeholder="Boutique, propriétaire, email ou ville"/><select value={status} onChange={e=>setStatus(e.target.value)}><option value="">Tous les statuts</option><option value="active">Actives</option><option value="suspended">Suspendues</option></select></div>
+    {(error||actionError)&&<div className="alert bad">{error||actionError}</div>}
+    <Table headers={['Boutique','Propriétaire','Ville','Statut','Produits','Commandes','CA','Commission','Solde','']} rows={(data||[]).map(store=>[<div><strong>{store.name}</strong><span>{store.is_partner?'Partenaire · ':''}{store.is_verified?'Vérifiée':''}</span></div>,<div><strong>{store.owner_name||'—'}</strong><span>{store.owner_email||'—'}</span></div>,store.city||'—',<Badge value={store.status}/>,store.product_count,store.order_count,usd(store.sales_usd),<div><strong>{Number(store.commission_percent||0).toFixed(2)} %</strong><span>{store.commission_source==='custom'?'Spécifique':'Générale'}</span></div>,usd(store.seller_due_usd),<div className="button-row compact"><button className="row-action" onClick={()=>openFinance(store)}>Ouvrir</button>{superAdmin&&<button className="row-action" onClick={()=>commission(store)}>Commission</button>}</div>])}/>
+    {selected&&<div className="drawer-backdrop" onClick={()=>setSelected(null)}><aside className="drawer" onClick={e=>e.stopPropagation()}><div className="drawer-head"><div><span>Boutique</span><h2>{selected.name}</h2></div><button onClick={()=>setSelected(null)}>×</button></div><div className="metrics-grid compact"><Metric icon={Store} label="Ventes livrées" value={usd(selected.finance?.metrics?.delivered_sales_usd)}/><Metric icon={BadgeCheck} label="Commission" value={`${Number(selected.finance?.effective_commission||0).toFixed(2)} %`} sub={selected.finance?.commission_source==='custom'?'personnalisée':'générale'}/><Metric icon={Store} label="À payer" value={usd(selected.finance?.metrics?.seller_due_usd)}/><Metric icon={Store} label="Déjà payé" value={usd(selected.finance?.metrics?.seller_paid_usd)}/></div><section className="panel"><h3>Informations</h3><div className="info-row"><span>Propriétaire</span><div>{selected.owner_name||selected.owner_email||'—'}</div></div><div className="info-row"><span>Commission One Market</span><div>{usd(selected.finance?.metrics?.commission_generated_usd)}</div></div><div className="info-row"><span>Revenu vendeur</span><div>{usd(selected.finance?.metrics?.seller_earnings_usd)}</div></div><div className="info-row"><span>Commandes livrées</span><div>{selected.finance?.metrics?.delivered_orders||0}</div></div></section><section className="panel"><h3>Transactions</h3><Table headers={['Commande','Date','Brut','Commission','Vendeur','Paiement']} rows={(selected.finance?.transactions||[]).slice(0,50).map(t=>[t.number,dateTime(t.date),usd(t.gross),usd(t.commission),usd(t.seller_net),<Badge value={t.settlement_status}/>])}/></section><div className="button-row">{superAdmin&&<><button className="btn ghost" onClick={()=>commission(selected)}>Modifier commission</button>{selected.finance?.commission_source==='custom'&&<button className="btn ghost" onClick={()=>clearCommission(selected)}>Revenir à la commission générale</button>}</>}<button className="btn ghost" onClick={()=>setTrust(selected,'verified')}>{selected.is_verified?'Retirer vérification':'Vérifier'}</button>{superAdmin&&<button className="btn gold" onClick={()=>setTrust(selected,'partner')}>{selected.is_partner?'Retirer partenaire':'Partenaire'}</button>}<button className={`btn ${selected.status==='active'?'danger':'primary'}`} onClick={()=>changeStatus(selected)}>{selected.status==='active'?'Suspendre':'Activer'}</button></div></aside></div>}
+    <ConfirmModal open={modal?.type==='status'} title={modal?.store?.status==='active'?'Suspendre la boutique':'Réactiver la boutique'} danger={modal?.store?.status==='active'} onClose={()=>setModal(null)} onConfirm={saveStatus}><label>Motif<textarea rows={3} value={value} onChange={e=>setValue(e.target.value)} required={modal?.store?.status==='active'}/></label></ConfirmModal>
+    <ConfirmModal open={modal?.type==='commission'} title="Commission personnalisée" text={modal?.store?.name} onClose={()=>setModal(null)} onConfirm={saveCommission}><label>Commission (%)<input type="number" min="0" max="100" step="0.01" value={value} onChange={e=>setValue(e.target.value)}/></label></ConfirmModal>
   </>
 }
 
 export function ProductsPage() {
-  const [search, setSearch] = useState('')
-  const { data, loading, reload } = useLoad(async () => {
-    const { data: products, error } = await supabase.from('products').select('id,name,price,currency,stock_qty,is_active,rating_avg,rating_count,created_at,store_id').order('created_at', { ascending: false }).limit(250)
-    if (error) throw error
-    const storeIds = [...new Set((products || []).map(product => product.store_id))]
-    const { data: stores } = storeIds.length ? await supabase.from('stores').select('id,name').in('id', storeIds) : { data: [] }
-    const storeMap = Object.fromEntries((stores || []).map(store => [store.id, store.name]))
-    return (products || []).map(product => ({ ...product, store_name: storeMap[product.store_id] }))
-  }, [])
-
-  const visible = useMemo(() => (data || []).filter(product => !search || `${product.name} ${product.store_name || ''}`.toLowerCase().includes(search.toLowerCase())), [data, search])
-
-  async function moderate(product) {
-    const nextActive = !product.is_active
-    const reason = !nextActive ? window.prompt('Motif du masquage :') : 'Réactivation ERP'
-    if (!nextActive && !reason) return
-    const { error } = await supabase.rpc('erp_moderate_product', { p_product_id: product.id, p_active: nextActive, p_reason: reason })
-    if (error) window.alert(error.message)
-    else reload()
-  }
-
-  return <>
-    <SectionHead eyebrow="Marketplace" title="Produits" desc="Vue globale et modération du catalogue."/>
-    <SearchBar value={search} onChange={setSearch} placeholder="Produit ou boutique"/>
-    {loading ? <Loader/> : <Table headers={['Produit','Boutique','Prix','Stock','Note','Statut','']} rows={visible.map(product => [
-      product.name,
-      product.store_name || '—',
-      usd(product.price),
-      product.stock_qty,
-      `${Number(product.rating_avg || 0).toFixed(1)} (${product.rating_count || 0})`,
-      <Badge value={product.is_active ? 'active' : 'suspended'} label={product.is_active ? 'Actif' : 'Masqué'}/>,
-      <button className={`row-action ${product.is_active ? 'danger-text' : ''}`} type="button" onClick={() => moderate(product)}>{product.is_active ? 'Masquer' : 'Réactiver'}</button>,
-    ])}/>} 
-  </>
+  const [search,setSearch]=useState(''); const [store,setStore]=useState(''); const [state,setState]=useState('all'); const [modal,setModal]=useState(null); const [reason,setReason]=useState(''); const [actionError,setActionError]=useState('')
+  const {data,loading,error,reload}=useLoad(async()=>{const {data:products,error}=await supabase.from('products').select('id,name,price,currency,stock_qty,is_active,rating_avg,rating_count,created_at,store_id,category_id').order('created_at',{ascending:false}).limit(250);if(error)throw error;const ids=[...new Set((products||[]).map(p=>p.store_id))];const {data:stores}=ids.length?await supabase.from('stores').select('id,name').in('id',ids):{data:[]};const sm=Object.fromEntries((stores||[]).map(s=>[s.id,s.name]));return{products:(products||[]).map(p=>({...p,store_name:sm[p.store_id]})),stores:stores||[]}},[])
+  const visible=useMemo(()=>(data?.products||[]).filter(p=>(!search||`${p.name} ${p.store_name||''}`.toLowerCase().includes(search.toLowerCase()))&&(!store||p.store_id===store)&&(state==='all'||(state==='active'?p.is_active:!p.is_active))),[data,search,store,state])
+  function moderate(p){setActionError('');setReason('');setModal(p)}
+  async function save(){setActionError('');const next=!modal.is_active;const {error}=await supabase.rpc('erp_moderate_product',{p_product_id:modal.id,p_active:next,p_reason:reason||'Réactivation ERP'});if(error)return setActionError(error.message);setModal(null);reload()}
+  return <><SectionHead eyebrow="Marketplace" title="Produits" desc="Catalogue global, stock, boutique et modération."/><div className="toolbar-row"><SearchBar value={search} onChange={setSearch} placeholder="Produit ou boutique"/><select value={store} onChange={e=>setStore(e.target.value)}><option value="">Toutes les boutiques</option>{(data?.stores||[]).map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select><select value={state} onChange={e=>setState(e.target.value)}><option value="all">Tous</option><option value="active">Actifs</option><option value="inactive">Masqués</option></select></div>{(error||actionError)&&<div className="alert bad">{error||actionError}</div>}{loading?<Loader/>:<Table headers={['Produit','Boutique','Prix','Stock','Note','Statut','']} rows={visible.map(p=>[p.name,p.store_name||'—',usd(p.price),p.stock_qty,`${Number(p.rating_avg||0).toFixed(1)} (${p.rating_count||0})`,<Badge value={p.is_active?'active':'suspended'} label={p.is_active?'Actif':'Masqué'}/>,<button className={`row-action ${p.is_active?'danger-text':''}`} onClick={()=>moderate(p)}>{p.is_active?'Masquer':'Réactiver'}</button>])}/>}<ConfirmModal open={!!modal} title={modal?.is_active?'Masquer le produit':'Réactiver le produit'} danger={modal?.is_active} onClose={()=>setModal(null)} onConfirm={save}><label>Motif<textarea rows={3} value={reason} onChange={e=>setReason(e.target.value)}/></label></ConfirmModal></>
 }

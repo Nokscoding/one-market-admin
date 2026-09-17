@@ -17,8 +17,8 @@ export const TICKET_LABELS = {
 }
 
 export function tone(value) {
-  if (['approved','active','delivered','cash_received','resolved'].includes(value)) return 'ok'
-  if (['rejected','suspended','disabled','failed','cancelled','refused','closed'].includes(value)) return 'bad'
-  if (['pending','pending_confirmation','under_review','in_progress','ready','preparing','out_for_delivery','needs_information','escalated'].includes(value)) return 'warn'
+  if (['approved','active','delivered','cash_received','paid','resolved'].includes(value)) return 'ok'
+  if (['rejected','suspended','disabled','failed','cancelled','refused','closed','refunded'].includes(value)) return 'bad'
+  if (['pending','pending_confirmation','under_review','in_progress','ready','preparing','out_for_delivery','needs_information','escalated','payment_submitted','pending_on_delivery','scheduled','awaiting_mobile_money'].includes(value)) return 'warn'
   return 'neutral'
 }
