@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { adminUserError, logAdminError } from './userErrors'
 
 export function useLoad(loader, deps = []) {
   const [data, setData] = useState(null)
@@ -11,7 +12,8 @@ export function useLoad(loader, deps = []) {
     try {
       setData(await loader())
     } catch (loadError) {
-      setError(loadError?.message || 'Une erreur est survenue.')
+      logAdminError('load', loadError)
+      setError(adminUserError(loadError, 'Impossible de charger ces informations. Réessayez.'))
     } finally {
       setLoading(false)
     }
