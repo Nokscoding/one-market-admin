@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import {
   BadgeCheck, CircleDollarSign, ClipboardList, Headphones, LayoutDashboard, LogOut,
-  Menu, MessageSquare, Package, Settings, ShoppingBag, Store, Truck, UserCog, Users, X, Zap, ShieldCheck,
+  Megaphone, Menu, MessageSquare, Package, Settings, ShoppingBag, Store, Truck, UserCog, Users, X, Zap, ShieldCheck,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { ROLE_LABELS } from '../lib/roles'
@@ -15,6 +15,7 @@ const NAV = [
   ['/sellers', BadgeCheck, 'Vendeurs', 'sellers.view'],
   ['/stores', Store, 'Boutiques', 'stores.view'],
   ['/products', ShoppingBag, 'Produits', 'products.view'],
+  ['/promotions', Megaphone, 'Publicités', '__super_admin__'],
   ['/orders', Package, 'Commandes', 'orders.view'],
   ['/delivery', Truck, 'Livraisons', 'delivery.view'],
   ['/support', Headphones, 'Signalements', 'support.view'],

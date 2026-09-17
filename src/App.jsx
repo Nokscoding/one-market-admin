@@ -3,6 +3,7 @@ import { ShieldCheck } from 'lucide-react'
 import { useAuth } from './context/AuthContext'
 import Layout from './components/Layout'
 import { Loader } from './components/UI'
+import HomePromotionsPage from './components/HomePromotionsSettings'
 import LoginPage from './pages/LoginPage'
 import DashboardPage from './pages/DashboardPage'
 import { UserDetailPage, UsersPage } from './pages/UsersPage'
@@ -35,6 +36,7 @@ export default function App() {
         <Route path="sellers/:id" element={<SellerDetailPage/>}/>
         <Route path="stores" element={<StoresPage/>}/>
         <Route path="products" element={<ProductsPage/>}/>
+        <Route path="promotions" element={<HomePromotionsPage/>}/>
         <Route path="orders" element={<OrdersPage/>}/>
         <Route path="orders/:id" element={<OrderDetailPage/>}/>
         <Route path="delivery" element={<DeliveryPage/>}/>
