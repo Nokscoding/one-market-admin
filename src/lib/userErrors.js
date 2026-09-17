@@ -31,6 +31,15 @@ export function adminUserError(error, fallback = 'Une erreur est survenue. Rées
   if (message.includes('invalid_payment_status')) {
     return 'Ce statut de paiement n’est pas autorisé.'
   }
+  if (message.includes('payment_status_final')) {
+    return 'Ce paiement est déjà finalisé et ne peut plus être modifié.'
+  }
+  if (message.includes('invalid_payment_transition')) {
+    return 'Cette transition de paiement n’est pas autorisée pour ce moyen de paiement.'
+  }
+  if (message.includes('payment_cancellation_too_late')) {
+    return 'La commande a déjà été prise en charge et le paiement ne peut plus être annulé.'
+  }
   if (message.includes('invalid_delivery_status')) {
     return 'Ce statut de livraison n’est pas autorisé.'
   }

@@ -52,12 +52,12 @@ export function OrderDetailPage() {
   const [paymentStatus, setPaymentStatus] = useState('')
   const [actionError, setActionError] = useState('')
   const { data, loading, reload } = useLoad(async () => {
-    const { data: order, error } = await supabase.from('orders').select('*').eq('id', id).single()
+    const { data: order, error } = await supabase.from('orders').select('id,order_number,customer_id,address_id,status,payment_method,payment_status,items_total,delivery_total,grand_total,currency,shipping_snapshot,customer_note,created_at,updated_at,delivery_method,delivery_fee_cdf,delivery_currency,logistics_status').eq('id', id).single()
     if (error) throw error
     const [sellerOrders, items, events, tickets] = await Promise.all([
-      supabase.from('seller_orders').select('*').eq('order_id', id).order('created_at'),
-      supabase.from('order_items').select('*').eq('order_id', id).order('created_at'),
-      supabase.from('order_status_events').select('*').eq('order_id', id).order('created_at'),
+      supabase.from('seller_orders').select('id,order_id,store_id,seller_order_number,status,subtotal,delivery_fee,total,currency,refusal_reason,created_at,updated_at,delivery_method,delivery_fee_cdf,delivery_currency,logistics_status,commission_percent,commission_amount,seller_net_amount,settlement_status').eq('order_id', id).order('created_at'),
+      supabase.from('order_items').select('id,order_id,seller_order_id,store_id,product_id,product_variant_id,product_name,product_image_url,variant_snapshot,unit_price,quantity,line_total,currency,created_at').eq('order_id', id).order('created_at'),
+      supabase.from('order_status_events').select('id,order_id,status,label,created_at').eq('order_id', id).order('created_at'),
       supabase.from('support_tickets').select('id,ticket_number,status,subject').eq('order_id', id),
     ])
     if (sellerOrders.error) throw sellerOrders.error
@@ -71,7 +71,12 @@ export function OrderDetailPage() {
   if (!data?.order) return <Empty>Commande introuvable.</Empty>
   const order = data.order
   const canManageFinance = can('finance.manage') || staff?.staff_role === 'SUPER_ADMIN'
-  const allowedPayments = order.payment_method === 'mobile_money' ? ['awaiting_mobile_money','payment_submitted','paid','cancelled'] : ['pending_on_delivery','cash_received','cancelled']
+  const paymentFinal = ['paid','cash_received','cancelled'].includes(order.payment_status)
+  const allowedPayments = paymentFinal
+    ? [order.payment_status]
+    : order.payment_method === 'mobile_money'
+      ? (order.payment_status === 'payment_submitted' ? ['payment_submitted','paid','cancelled'] : ['awaiting_mobile_money','payment_submitted','paid','cancelled'])
+      : ['pending_on_delivery','cash_received','cancelled']
   const commission = data.sellerOrders.reduce((sum, row) => sum + Number(row.commission_amount || 0), 0)
   const sellerNet = data.sellerOrders.reduce((sum, row) => sum + Number(row.seller_net_amount || 0), 0)
 
@@ -88,7 +93,7 @@ export function OrderDetailPage() {
   }
 
   return <>
-    <SectionHead eyebrow="Commande" title={order.order_number} desc={dateTime(order.created_at)} actions={canManageFinance && <button className="btn primary" type="button" onClick={openPayment}><Banknote size={17}/>Gérer le paiement</button>}/>
+    <SectionHead eyebrow="Commande" title={order.order_number} desc={dateTime(order.created_at)} actions={canManageFinance && !paymentFinal && <button className="btn primary" type="button" onClick={openPayment}><Banknote size={17}/>Gérer le paiement</button>}/>
     {actionError && <div className="alert bad">{actionError}</div>}
     <div className="detail-grid">
       <section className="panel detail-card"><h3>Résumé</h3><Info label="Statut" value={<Badge value={order.status} label={ORDER_LABELS[order.status] || 'En cours'}/>}/><Info label="Produits" value={usd(order.items_total)}/><Info label="Livraison" value={`${order.delivery_method === 'express' ? 'Express' : 'Normale'} · ${cdf(order.delivery_fee_cdf)}`}/><Info label="Méthode" value={order.payment_method === 'mobile_money' ? 'Mobile Money' : 'Paiement à la livraison'}/><Info label="Paiement" value={paymentLabel(order)}/><Info label="Logistique" value={LOGISTICS_LABELS[order.logistics_status] || 'En cours'}/></section>
