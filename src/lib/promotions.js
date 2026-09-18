@@ -1,4 +1,6 @@
-export const EMPTY_PROMOTION = { title: '', media_type: 'image', url: '', link: '', alt: '', start_at: '', end_at: '', target_blank: false, active: true }
+export const EMPTY_PROMOTION = { title: '', media_type: 'image', url: '', link: '', alt: '', start_at: '', end_at: '', target_blank: false, active: true, crop_x: 50, crop_y: 50, crop_zoom: 100 }
+
+const clamp = (value, min, max, fallback) => { const number = Number(value); return Number.isFinite(number) ? Math.max(min, Math.min(max, number)) : fallback }
 
 export function normalizePromotions(value) {
   const raw = value && typeof value === 'object' ? value : {}
@@ -12,6 +14,7 @@ export function normalizePromotions(value) {
       ...EMPTY_PROMOTION, ...item, id: item.id || 'legacy-promotion-' + index,
       active: item.active !== false, target_blank: item.target_blank === true,
       media_type: item.media_type === 'video' ? 'video' : 'image',
+      crop_x: clamp(item.crop_x, 0, 100, 50), crop_y: clamp(item.crop_y, 0, 100, 50), crop_zoom: clamp(item.crop_zoom, 100, 220, 100),
       sort_order: Number(item.sort_order ?? index),
     })).sort((a, b) => a.sort_order - b.sort_order),
   }
@@ -48,6 +51,7 @@ export function applyPromotion(config, draft, editingId) {
     link: String(draft.link || '').trim(), alt: String(draft.alt || '').trim(),
     start_at: draft.start_at ? new Date(draft.start_at).toISOString() : '',
     end_at: draft.end_at ? new Date(draft.end_at).toISOString() : '',
+    crop_x: clamp(draft.crop_x, 0, 100, 50), crop_y: clamp(draft.crop_y, 0, 100, 50), crop_zoom: clamp(draft.crop_zoom, 100, 220, 100),
   }
   const items = editingId ? config.items.map(current => current.id === editingId ? { ...current, ...item } : current) : [...config.items, item]
   return { ...config, items: items.map((current, sort_order) => ({ ...current, sort_order })) }
