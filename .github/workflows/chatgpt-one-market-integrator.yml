@@ -10,46 +10,39 @@ on:
 permissions:
   contents: write
   issues: write
+  pull-requests: write
+  actions: read
 
 jobs:
   integrate:
     if: github.event_name == 'pull_request' || github.event.issue.title == 'RUN_CHATGPT_ONE_MARKET_ADMIN_INTEGRATION_20260918'
     runs-on: ubuntu-latest
     steps:
-      - name: Clone integration branch
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euxo pipefail
-          git clone --branch chatgpt/integration-20260918-admin "https://x-access-token:${GH_TOKEN}@github.com/Nokscoding/one-market-admin.git" repo
-          cd repo
-          git status --short
+      - name: Checkout integration branch
+        uses: actions/checkout@v4
+        with:
+          ref: chatgpt/integration-20260918-admin
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Reconstruct patch
-        shell: bash
-        run: |
-          set -euxo pipefail
-          cd repo
-          cat .patches/admin-00.z .patches/admin-01.z .patches/admin-02.z .patches/admin-03.z .patches/admin-04.z > /tmp/one-market-admin.z
-          python3 - <<'PY'
-          import zlib
-          from pathlib import Path
-          data = Path('/tmp/one-market-admin.z').read_bytes()
-          patch = zlib.decompress(data)
-          Path('/tmp/one-market-admin.patch').write_bytes(patch)
-          print("patch bytes", len(patch))
-          PY
-
-      - name: Apply and build
+      - name: Reconstruct patch, apply, and build
         id: validate
         continue-on-error: true
         shell: bash
         run: |
           set -o pipefail
-          cd repo
-          : > /tmp/integration.log
+          : > integration.log
           {
+            echo "== reconstruct patch =="
+            cat .patches/admin-00.z .patches/admin-01.z .patches/admin-02.z .patches/admin-03.z .patches/admin-04.z > /tmp/one-market-admin.z
+            python3 - <<'PY'
+            import zlib
+            from pathlib import Path
+            data = Path('/tmp/one-market-admin.z').read_bytes()
+            patch = zlib.decompress(data)
+            Path('/tmp/one-market-admin.patch').write_bytes(patch)
+            print("patch bytes", len(patch))
+            PY
             echo "== git apply --check =="
             git apply --check /tmp/one-market-admin.patch
             echo "== git apply =="
@@ -61,38 +54,33 @@ jobs:
             npm ci
             echo "== npm run build =="
             npm run build
-          } 2>&1 | tee /tmp/integration.log
+          } 2>&1 | tee integration.log
           exit ${PIPESTATUS[0]}
+
+      - name: Upload integration diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: one-market-admin-integration-log
+          path: integration.log
+          if-no-files-found: warn
+          retention-days: 1
 
       - name: Commit validated source
         if: steps.validate.outcome == 'success'
         shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euxo pipefail
-          cd repo
           rm -rf .patches
           rm -f .github/workflows/one-market-integration.yml
           rm -f .integration-failure.log
+          rm -f integration.log
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
           git commit -m "fix: integrate One Market admin corrections [skip netlify]"
-          git push "https://x-access-token:${GH_TOKEN}@github.com/Nokscoding/one-market-admin.git" HEAD:chatgpt/integration-20260918-admin
+          git push origin HEAD:chatgpt/integration-20260918-admin
 
-      - name: Commit diagnostics
+      - name: Fail when validation fails
         if: steps.validate.outcome != 'success'
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euxo pipefail
-          cd repo
-          cp /tmp/integration.log .integration-failure.log
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .integration-failure.log
-          git commit -m "chore: record admin integration failure [skip netlify]"
-          git push "https://x-access-token:${GH_TOKEN}@github.com/Nokscoding/one-market-admin.git" HEAD:chatgpt/integration-20260918-admin
-          exit 1
+        run: exit 1
