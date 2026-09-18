@@ -49,3 +49,20 @@
   .promo-editor, .promo-row { padding: 12px; }
   .promo-row { grid-template-columns: 84px minmax(0, 1fr); gap: 12px; }
 }
+
+.promo-editor-workspace{display:grid;grid-template-columns:minmax(0,1.18fr) minmax(360px,.82fr);gap:20px;align-items:start}
+.promo-editor-workspace fieldset{min-width:0;margin:0;padding:0;border:0}
+.promo-editor-live{position:sticky;top:18px;display:grid;gap:12px;padding:14px;border:1px solid #d9e1ec;border-radius:12px;background:#f8fafc;box-shadow:0 10px 28px rgba(15,23,42,.08)}
+.promo-editor-live-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.promo-editor-live-head>div:first-child{display:grid;gap:2px}
+.promo-editor-live-head span{color:#64748b;font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em}
+.promo-editor-live-head strong{color:#0f172a;font-size:.95rem}
+.promo-live-preview--editor{margin:0!important;max-height:min(56vh,520px);border-radius:10px!important;background:#e9eef5!important}
+.promo-live-preview--editor.desktop{width:100%}
+.promo-live-preview--editor.mobile{width:min(390px,100%);justify-self:center}
+.promo-editor-live-help{margin:0;color:#65748a;font-size:.75rem;line-height:1.45}
+@media(max-width:1050px){
+  .promo-editor-workspace{grid-template-columns:1fr}
+  .promo-editor-live{position:static;order:-1}
+  .promo-live-preview--editor{max-height:none}
+}

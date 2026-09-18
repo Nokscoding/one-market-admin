@@ -115,7 +115,8 @@ export function HomePromotionsSettings() {
       {notice && <div className="promo-message ok" role="status">{notice}</div>}
       {editorOpen && <form className="promo-editor" onSubmit={saveDraft} ref={editor}>
         <h3>{editingId ? 'Modifier la publicité' : 'Nouvelle publicité'}</h3>
-        <fieldset disabled={busy}><div className="promo-form-grid">
+        <div className="promo-editor-workspace">
+          <fieldset disabled={busy}><div className="promo-form-grid">
           <label>Titre<input value={draft.title} maxLength={160} onChange={e => setDraft({ ...draft, title: e.target.value })}/></label>
           <label>Type de média<select value={draft.media_type} onChange={e => setDraft({ ...draft, media_type: e.target.value })}><option value="image">Image</option><option value="video">Vidéo</option></select></label>
           <label className="wide">URL du média<input type="url" required value={draft.url} onChange={e => setDraft({ ...draft, url: e.target.value })} placeholder="https://…"/></label>
@@ -134,6 +135,20 @@ export function HomePromotionsSettings() {
           <label className="promo-switch"><input type="checkbox" checked={draft.target_blank} onChange={e => setDraft({ ...draft, target_blank: e.target.checked })}/><span>Ouvrir dans un nouvel onglet</span></label>
           <label className="promo-switch"><input type="checkbox" checked={draft.active} onChange={e => setDraft({ ...draft, active: e.target.checked })}/><span>Publicité active</span></label>
         </div></fieldset>
+          <aside className="promo-editor-live">
+            <div className="promo-editor-live-head">
+              <div><span>Aperçu en direct</span><strong>{preview === 'desktop' ? 'Desktop' : 'Mobile'}</strong></div>
+              <div className="button-row compact">
+                <button type="button" className={'btn ' + (preview === 'desktop' ? 'primary' : 'ghost')} aria-pressed={preview === 'desktop'} onClick={() => setPreview('desktop')}><Monitor size={15}/> Desktop</button>
+                <button type="button" className={'btn ' + (preview === 'mobile' ? 'primary' : 'ghost')} aria-pressed={preview === 'mobile'} onClick={() => setPreview('mobile')}><Smartphone size={15}/> Mobile</button>
+              </div>
+            </div>
+            <div className={'promo-live-preview promo-live-preview--editor ' + preview} style={{ '--promo-preview-height': `${preview === 'desktop' ? config.desktop_height : config.mobile_height}px`, '--promo-preview-fit': config.media_fit, '--promo-preview-x': `${draft?.crop_x ?? 50}%`, '--promo-preview-y': `${draft?.crop_y ?? 50}%`, '--promo-preview-zoom': Number(draft?.crop_zoom ?? 100) / 100 }}>
+              {draft && validMediaUrl(draft.url) ? draft.media_type === 'video' ? <video src={draft.url} muted controls playsInline/> : <img src={draft.url} alt={draft.alt || draft.title || 'Aperçu de la publicité'}/> : <span>Ajoutez un média pour afficher l’aperçu.</span>}
+            </div>
+            <p className="promo-editor-live-help">Le cadrage se met à jour immédiatement pendant vos réglages.</p>
+          </aside>
+        </div>
         <div className="button-row"><button className="btn primary" disabled={busy}>{saving ? 'Enregistrement…' : 'Enregistrer'}</button><button type="button" className="btn ghost" disabled={busy} onClick={() => { setEditorOpen(false); setEditingId(null) }}>Annuler</button></div>
       </form>}
       <div className="promo-list">{config.items.length ? config.items.map((item, index) => <article className="promo-row" key={item.id}>
@@ -149,7 +164,7 @@ export function HomePromotionsSettings() {
         {deleteId === item.id && <div className="promo-delete-confirm" role="alert"><p>Supprimer cette publicité du carrousel ?</p><div className="button-row"><button className="btn danger" disabled={busy} onClick={async () => { if (await persist({ ...config, items: config.items.filter(row => row.id !== item.id).map((row, sort_order) => ({ ...row, sort_order })) }, 'Publicité supprimée.')) setDeleteId(null) }}>Confirmer la suppression</button><button className="btn ghost" disabled={busy} onClick={() => setDeleteId(null)}>Annuler</button></div></div>}
       </article>) : <p className="promo-empty">Aucune publicité. Ajoutez votre première campagne.</p>}</div>
     </section>
-    <section className="panel"><div className="promo-admin-head"><h2>Aperçu {editorOpen ? 'des modifications' : 'de la publicité'}</h2><div className="button-row"><button className={'btn ' + (preview === 'desktop' ? 'primary' : 'ghost')} aria-pressed={preview === 'desktop'} onClick={() => setPreview('desktop')}><Monitor size={16}/> Desktop</button><button className={'btn ' + (preview === 'mobile' ? 'primary' : 'ghost')} aria-pressed={preview === 'mobile'} onClick={() => setPreview('mobile')}><Smartphone size={16}/> Mobile</button></div></div><div className={'promo-live-preview ' + preview} style={{ '--promo-preview-height': `${preview === 'desktop' ? config.desktop_height : config.mobile_height}px`, '--promo-preview-fit': config.media_fit, '--promo-preview-x': `${previewItem?.crop_x ?? 50}%`, '--promo-preview-y': `${previewItem?.crop_y ?? 50}%`, '--promo-preview-zoom': Number(previewItem?.crop_zoom ?? 100) / 100 }}>{previewItem && validMediaUrl(previewItem.url) ? previewItem.media_type === 'video' ? <video src={previewItem.url} muted controls playsInline/> : <img src={previewItem.url} alt={previewItem.alt || previewItem.title || 'Aperçu de la publicité'}/> : <span>Ajoutez un média pour afficher l’aperçu.</span>}</div></section>
+    {!editorOpen && <section className="panel"><div className="promo-admin-head"><h2>Aperçu de la publicité</h2><div className="button-row"><button className={'btn ' + (preview === 'desktop' ? 'primary' : 'ghost')} aria-pressed={preview === 'desktop'} onClick={() => setPreview('desktop')}><Monitor size={16}/> Desktop</button><button className={'btn ' + (preview === 'mobile' ? 'primary' : 'ghost')} aria-pressed={preview === 'mobile'} onClick={() => setPreview('mobile')}><Smartphone size={16}/> Mobile</button></div></div><div className={'promo-live-preview ' + preview} style={{ '--promo-preview-height': `${preview === 'desktop' ? config.desktop_height : config.mobile_height}px`, '--promo-preview-fit': config.media_fit, '--promo-preview-x': `${previewItem?.crop_x ?? 50}%`, '--promo-preview-y': `${previewItem?.crop_y ?? 50}%`, '--promo-preview-zoom': Number(previewItem?.crop_zoom ?? 100) / 100 }}>{previewItem && validMediaUrl(previewItem.url) ? previewItem.media_type === 'video' ? <video src={previewItem.url} muted controls playsInline/> : <img src={previewItem.url} alt={previewItem.alt || previewItem.title || 'Aperçu de la publicité'}/> : <span>Ajoutez un média pour afficher l’aperçu.</span>}</div></section>}
   </>
 }
 export default function HomePromotionsPage() {
