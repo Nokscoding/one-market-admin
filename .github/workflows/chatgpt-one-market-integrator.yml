@@ -3,38 +3,38 @@ name: ChatGPT One Market Admin Integrator
 on:
   issues:
     types: [opened, reopened]
-  pull_request:
-    branches: [main]
-    types: [opened, synchronize, reopened]
 
 permissions:
   contents: write
   issues: write
-  pull-requests: write
-  actions: read
 
 jobs:
   integrate:
-    if: github.event_name == 'pull_request' || github.event.issue.title == 'RUN_CHATGPT_ONE_MARKET_ADMIN_INTEGRATION_20260918'
+    if: github.event.issue.title == 'RUN_CHATGPT_ONE_MARKET_ADMIN_INTEGRATION_20260918'
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout integration branch
-        uses: actions/checkout@v4
-        with:
-          ref: chatgpt/integration-20260918-admin
-          fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Reconstruct patch, apply, and build
-        id: validate
-        continue-on-error: true
+      - name: Native integrate, build, report
         shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          set -o pipefail
-          : > integration.log
-          {
+          set +e
+          : > /tmp/integration.log
+          exec > >(tee -a /tmp/integration.log) 2>&1
+
+          STATUS=0
+          echo "== clone integration branch =="
+          git clone --branch chatgpt/integration-20260918-admin "https://x-access-token:${GH_TOKEN}@github.com/Nokscoding/one-market-admin.git" repo
+          STATUS=$?
+
+          if [ "$STATUS" -eq 0 ]; then
+            cd repo
             echo "== reconstruct patch =="
             cat .patches/admin-00.z .patches/admin-01.z .patches/admin-02.z .patches/admin-03.z .patches/admin-04.z > /tmp/one-market-admin.z
+            STATUS=$?
+          fi
+
+          if [ "$STATUS" -eq 0 ]; then
             python3 - <<'PY'
             import zlib
             from pathlib import Path
@@ -43,44 +43,66 @@ jobs:
             Path('/tmp/one-market-admin.patch').write_bytes(patch)
             print("patch bytes", len(patch))
             PY
+            STATUS=$?
+          fi
+
+          if [ "$STATUS" -eq 0 ]; then
             echo "== git apply --check =="
             git apply --check /tmp/one-market-admin.patch
+            STATUS=$?
+          fi
+
+          if [ "$STATUS" -eq 0 ]; then
             echo "== git apply =="
             git apply /tmp/one-market-admin.patch
+            STATUS=$?
+          fi
+
+          if [ "$STATUS" -eq 0 ]; then
             echo "== node/npm =="
             node --version
             npm --version
             echo "== npm ci =="
             npm ci
+            STATUS=$?
+          fi
+
+          if [ "$STATUS" -eq 0 ]; then
             echo "== npm run build =="
             npm run build
-          } 2>&1 | tee integration.log
-          exit ${PIPESTATUS[0]}
+            STATUS=$?
+          fi
 
-      - name: Upload integration diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: one-market-admin-integration-log
-          path: integration.log
-          if-no-files-found: warn
-          retention-days: 1
+          if [ "$STATUS" -eq 0 ]; then
+            echo "== commit validated source =="
+            rm -rf .patches
+            rm -f .github/workflows/one-market-integration.yml .integration-failure.log integration.log
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add -A
+            git commit -m "fix: integrate One Market admin corrections [skip netlify]"
+            STATUS=$?
+          fi
 
-      - name: Commit validated source
-        if: steps.validate.outcome == 'success'
-        shell: bash
-        run: |
-          set -euxo pipefail
-          rm -rf .patches
-          rm -f .github/workflows/one-market-integration.yml
-          rm -f .integration-failure.log
-          rm -f integration.log
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git commit -m "fix: integrate One Market admin corrections [skip netlify]"
-          git push origin HEAD:chatgpt/integration-20260918-admin
+          if [ "$STATUS" -eq 0 ]; then
+            git push origin HEAD:chatgpt/integration-20260918-admin
+            STATUS=$?
+          fi
 
-      - name: Fail when validation fails
-        if: steps.validate.outcome != 'success'
-        run: exit 1
+          cd "$GITHUB_WORKSPACE" 2>/dev/null || true
+          echo "== final status: $STATUS =="
+
+          LOG_BODY="$(tail -c 60000 /tmp/integration.log)"
+          if [ "$STATUS" -eq 0 ]; then
+            PREFIX="✅ ADMIN INTEGRATION SUCCESS"
+          else
+            PREFIX="❌ ADMIN INTEGRATION FAILED (status $STATUS)"
+          fi
+          gh api -X POST repos/Nokscoding/one-market-admin/issues/1/comments \
+            -f body="$PREFIX
+
+\`\`\`
+$LOG_BODY
+\`\`\`" || true
+
+          exit "$STATUS"
