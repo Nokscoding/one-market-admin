@@ -15,7 +15,7 @@ const STAFF_ROLES = new Set([
   "OPERATIONS_MANAGER",
   "COURIER",
 ]);
-const MARKETPLACE_ROLES = new Set(["client", "seller", "courier", "admin", "global_admin"]);
+const MARKETPLACE_ROLES = new Set(["client", "courier", "admin", "global_admin"]);
 const VEHICLE_TYPES = new Set(["moto", "voiture", "velo", "pied", "autre"]);
 
 function json(body: unknown, status = 200) {
@@ -70,6 +70,8 @@ Deno.serve(async (req: Request) => {
     if (fullName.length < 2 || fullName.length > 120) return json({ error: "INVALID_NAME" }, 400);
     if (password.length < 8) return json({ error: "PASSWORD_TOO_SHORT" }, 400);
     if (!MARKETPLACE_ROLES.has(marketplaceRole)) return json({ error: "INVALID_MARKETPLACE_ROLE" }, 400);
+    // Sellers are client accounts with seller_enabled granted by the seller approval workflow.
+    if (marketplaceRole === "seller") return json({ error: "SELLER_USES_CLIENT_ACCOUNT" }, 400);
     if (staffRole && !STAFF_ROLES.has(staffRole)) return json({ error: "INVALID_STAFF_ROLE" }, 400);
     if (staffRole === "SUPER_ADMIN" && marketplaceRole === "client") return json({ error: "CLIENT_CANNOT_BE_SUPER_ADMIN" }, 400);
     if (marketplaceRole === "courier" && staffRole !== "COURIER") return json({ error: "COURIER_REQUIRES_ERP_ROLE" }, 400);

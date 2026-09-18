@@ -93,7 +93,7 @@ function CreateUserModal({ open, onClose, onDone }) {
   }
 
   return <div className="modal-backdrop"><form className="modal" onSubmit={submit}>
-    <div className="modal-head"><div><h3>Créer un utilisateur</h3><p>Le DG peut créer un compte One Market et lui donner, si nécessaire, un accès ERP.</p></div><button type="button" onClick={onClose}>×</button></div>
+    <div className="modal-head"><div><h3>Créer un utilisateur</h3><p>Le DG peut créer un compte client ou livreur. Un vendeur reste un compte client et obtient l’accès boutique uniquement après validation de son dossier vendeur.</p></div><button type="button" onClick={onClose}>×</button></div>
     <div className="form-grid">
       <label>Nom complet<input required value={form.full_name} onChange={event => setForm({ ...form, full_name: event.target.value })}/></label>
       <label>Email<input required type="email" value={form.email} onChange={event => setForm({ ...form, email: event.target.value })}/></label>

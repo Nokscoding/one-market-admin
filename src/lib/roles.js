@@ -11,6 +11,5 @@ export const STAFF_ROLES = Object.keys(ROLE_LABELS)
 
 export const MARKETPLACE_ROLES = [
   ['client', 'Client'],
-  ['seller', 'Vendeur'],
   ['courier', 'Livreur'],
 ]
