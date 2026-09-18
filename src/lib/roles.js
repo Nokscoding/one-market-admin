@@ -4,6 +4,7 @@ export const ROLE_LABELS = {
   MODERATOR: 'Modérateur',
   CUSTOMER_SERVICE: 'Service client',
   OPERATIONS_MANAGER: 'Gestionnaire opérations',
+  COURIER: 'Livreur',
 }
 
 export const STAFF_ROLES = Object.keys(ROLE_LABELS)

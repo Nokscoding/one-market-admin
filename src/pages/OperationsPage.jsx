@@ -10,6 +10,7 @@ import { Badge, ConfirmModal, Empty, Info, Loader, SearchBar, SectionHead, Table
 
 const ORDER_FILTERS = ['all','pending_confirmation','confirmed','preparing','ready','picked_up','out_for_delivery','delivered','partially_completed','problem','cancelled','failed','refused']
 const DELIVERY_STATUSES = ['pending','preparing','ready','picked_up','out_for_delivery','delivered','failed','problem']
+const DELIVERY_ASSIGNMENT_LABELS = { assigned:'Assignée', accepted:'Acceptée', picking_up:'Récupération', picked_up:'Récupérée', out_for_delivery:'En livraison', delivered:'Livrée', problem:'Problème', cancelled:'Annulée' }
 
 function paymentLabel(order) {
   return PAYMENT_LABELS[order.payment_status] || 'Paiement en attente'
@@ -109,19 +110,57 @@ export function OrderDetailPage() {
 }
 
 export function DeliveryPage() {
+  const { can, staff } = useAuth()
+  const superAdmin = staff?.staff_role === 'SUPER_ADMIN'
+  const canManage = can('delivery.manage') || superAdmin
+  const canFinance = can('finance.manage') || superAdmin
   const [filters, setFilters] = useState({ type:'', status:'', city:'' })
   const [modal, setModal] = useState(null)
   const [nextStatus, setNextStatus] = useState('pending')
+  const [courierId, setCourierId] = useState('')
+  const [resolution, setResolution] = useState('')
   const [actionError, setActionError] = useState('')
+
   const { data, loading, reload } = useLoad(async () => {
-    const { data: orders, error } = await supabase.from('orders').select('id,order_number,status,delivery_method,delivery_fee_cdf,logistics_status,shipping_snapshot,created_at').order('created_at', { ascending: false }).limit(250)
-    if (error) throw error
-    return orders || []
+    const [ordersResult, couriersResult, assignmentsResult, incidentsResult] = await Promise.all([
+      supabase.from('orders').select('id,order_number,status,delivery_method,delivery_fee_cdf,logistics_status,payment_method,payment_status,items_total,shipping_snapshot,created_at').order('created_at', { ascending: false }).limit(250),
+      supabase.rpc('erp_list_couriers'),
+      supabase.from('delivery_assignments').select('id,order_id,courier_user_id,status,collection_status,product_cash_collected_usd,delivery_fee_collected_cdf,assigned_at,delivered_at,remitted_at').order('assigned_at',{ascending:false}),
+      supabase.from('delivery_incidents').select('id,assignment_id,order_id,courier_user_id,incident_type,description,status,created_at').eq('status','open').order('created_at',{ascending:false}),
+    ])
+    if (ordersResult.error) throw ordersResult.error
+    return {
+      orders: ordersResult.data || [],
+      couriers: couriersResult.error ? [] : (couriersResult.data || []),
+      assignments: assignmentsResult.error ? [] : (assignmentsResult.data || []),
+      incidents: incidentsResult.error ? [] : (incidentsResult.data || []),
+    }
   }, [])
-  const visible = useMemo(() => (data || []).filter(order => (!filters.type || order.delivery_method===filters.type) && (!filters.status || order.logistics_status===filters.status) && (!filters.city || (order.shipping_snapshot?.city||'').toLowerCase().includes(filters.city.toLowerCase()))), [data, filters])
-  function openUpdate(order){ setActionError(''); setNextStatus(order.logistics_status||'pending'); setModal(order) }
-  async function save(){
-    const { error } = await supabase.rpc('erp_update_delivery_status',{p_order_id:modal.id,p_logistics_status:nextStatus})
+
+  const assignmentByOrder = useMemo(() => Object.fromEntries((data?.assignments || []).map(row => [row.order_id,row])), [data])
+  const courierById = useMemo(() => Object.fromEntries((data?.couriers || []).map(row => [row.user_id,row])), [data])
+  const visible = useMemo(() => (data?.orders || []).filter(order =>
+    (!filters.type || order.delivery_method===filters.type)
+    && (!filters.status || order.logistics_status===filters.status)
+    && (!filters.city || (order.shipping_snapshot?.city||'').toLowerCase().includes(filters.city.toLowerCase()))
+  ), [data, filters])
+
+  function openUpdate(order){
+    setActionError('')
+    setNextStatus(order.logistics_status||'pending')
+    setModal({type:'status',order})
+  }
+
+  function openAssign(order){
+    setActionError('')
+    const current=assignmentByOrder[order.id]
+    const first=(data?.couriers||[]).find(row=>row.status==='active')
+    setCourierId(current?.courier_user_id || first?.user_id || '')
+    setModal({type:'assign',order})
+  }
+
+  async function saveStatus(){
+    const { error } = await supabase.rpc('erp_update_delivery_status',{p_order_id:modal.order.id,p_logistics_status:nextStatus})
     if (error) {
       logAdminError('delivery-status', error)
       return setActionError(adminUserError(error, 'Impossible de modifier le statut de livraison.'))
@@ -130,11 +169,113 @@ export function DeliveryPage() {
     reload()
   }
 
+  async function saveAssign(){
+    if(!courierId) return setActionError('Choisissez un livreur actif.')
+    const {error}=await supabase.rpc('erp_assign_courier',{p_order_id:modal.order.id,p_courier_user_id:courierId})
+    if(error){
+      logAdminError('delivery-assign',error)
+      return setActionError(adminUserError(error,'Impossible d’assigner ce livreur.'))
+    }
+    setModal(null)
+    reload()
+  }
+
+  async function unassign(order){
+    if(!window.confirm(`Retirer le livreur de ${order.order_number} ?`)) return
+    const {error}=await supabase.rpc('erp_unassign_courier',{p_order_id:order.id})
+    if(error){
+      logAdminError('delivery-unassign',error)
+      return setActionError(adminUserError(error,'Impossible de retirer le livreur.'))
+    }
+    reload()
+  }
+
+  async function confirmRemittance(assignment){
+    if(!window.confirm('Confirmer que l’argent produits encaissé par le livreur a bien été remis à One Market ?')) return
+    const {error}=await supabase.rpc('erp_confirm_courier_remittance',{p_assignment_id:assignment.id})
+    if(error){
+      logAdminError('delivery-remittance',error)
+      return setActionError(adminUserError(error,'Impossible de confirmer la remise d’argent.'))
+    }
+    reload()
+  }
+
+  function openIncident(incident){
+    setResolution('')
+    setModal({type:'incident',incident})
+  }
+
+  async function resolveIncident(){
+    const {error}=await supabase.rpc('erp_resolve_delivery_incident',{p_incident_id:modal.incident.id,p_resolution:resolution||null})
+    if(error){
+      logAdminError('delivery-incident-resolve',error)
+      return setActionError(adminUserError(error,'Impossible de clôturer le signalement.'))
+    }
+    setModal(null)
+    reload()
+  }
+
   return <>
-    <SectionHead eyebrow="Opérations" title="Livraisons" desc="Livraisons gérées par One Market : suivi logistique, express et incidents. Aucun frais de livraison n’est facturé aux vendeurs."/>
-    <div className="toolbar-row"><input className="filter-input" placeholder="Filtrer par ville" value={filters.city} onChange={e=>setFilters({...filters,city:e.target.value})}/><select value={filters.type} onChange={e=>setFilters({...filters,type:e.target.value})}><option value="">Tous les types</option><option value="standard">Normale</option><option value="express">Express</option></select><select value={filters.status} onChange={e=>setFilters({...filters,status:e.target.value})}><option value="">Tous les statuts</option>{DELIVERY_STATUSES.map(s=><option key={s} value={s}>{LOGISTICS_LABELS[s]}</option>)}</select></div>
+    <SectionHead
+      eyebrow="Opérations"
+      title="Livraisons"
+      desc="Affectation des livreurs NKS, suivi mobile, incidents et encaissements COD."
+      actions={canManage && <NavLink className="btn primary" to="/couriers">Gérer les livreurs</NavLink>}
+    />
+    <div className="toolbar-row">
+      <input className="filter-input" placeholder="Filtrer par ville" value={filters.city} onChange={e=>setFilters({...filters,city:e.target.value})}/>
+      <select value={filters.type} onChange={e=>setFilters({...filters,type:e.target.value})}><option value="">Tous les types</option><option value="standard">Normale</option><option value="express">Express</option></select>
+      <select value={filters.status} onChange={e=>setFilters({...filters,status:e.target.value})}><option value="">Tous les statuts</option>{DELIVERY_STATUSES.map(s=><option key={s} value={s}>{LOGISTICS_LABELS[s]}</option>)}</select>
+    </div>
     {actionError && <div className="alert bad">{actionError}</div>}
-    {loading ? <Loader/> : <div className="cards-list">{visible.length ? visible.map(order => <article className={`delivery-card ${order.delivery_method === 'express' ? 'express' : ''}`} key={order.id}><div className="delivery-icon">{order.delivery_method === 'express' ? <Zap size={20}/> : <Truck size={20}/>}</div><div className="grow"><strong>{order.order_number}</strong><span>{order.shipping_snapshot?.full_name || 'Client'} · {order.shipping_snapshot?.city || '—'}</span><small>{order.delivery_method === 'express' ? 'Express' : 'Normale'} · {cdf(order.delivery_fee_cdf)}</small></div><Badge value={order.logistics_status} label={LOGISTICS_LABELS[order.logistics_status] || 'En cours'}/><button className="btn ghost" type="button" onClick={() => openUpdate(order)}>Mettre à jour</button></article>) : <Empty/>}</div>}
-    <ConfirmModal open={!!modal} title="Mettre à jour la livraison" text={modal?.order_number} onClose={()=>setModal(null)} onConfirm={save}><label>Statut<select value={nextStatus} onChange={e=>setNextStatus(e.target.value)}>{DELIVERY_STATUSES.map(s=><option key={s} value={s}>{LOGISTICS_LABELS[s]}</option>)}</select></label></ConfirmModal>
+
+    {loading ? <Loader/> : <div className="cards-list">{visible.length ? visible.map(order => {
+      const assignment=assignmentByOrder[order.id]
+      const courier=assignment ? courierById[assignment.courier_user_id] : null
+      const final=['delivered','partially_completed','cancelled','refused','failed'].includes(order.status)
+      return <article className={`delivery-card ${order.delivery_method === 'express' ? 'express' : ''}`} key={order.id}>
+        <div className="delivery-icon">{order.delivery_method === 'express' ? <Zap size={20}/> : <Truck size={20}/>}</div>
+        <div className="grow">
+          <strong>{order.order_number}</strong>
+          <span>{order.shipping_snapshot?.full_name || 'Client'} · {order.shipping_snapshot?.city || '—'}</span>
+          <small>{order.delivery_method === 'express' ? 'Express' : 'Normale'} · {cdf(order.delivery_fee_cdf)} · produits {usd(order.items_total)}</small>
+          <em className={`delivery-assignment-chip ${assignment?.status==='problem'?'problem':''}`}>
+            {courier ? `${courier.full_name} · ${DELIVERY_ASSIGNMENT_LABELS[assignment.status] || assignment.status}` : 'Aucun livreur assigné'}
+          </em>
+        </div>
+        <Badge value={order.logistics_status} label={LOGISTICS_LABELS[order.logistics_status] || 'En cours'}/>
+        <div className="button-row compact">
+          {canManage && !final && <button className="btn primary" type="button" onClick={() => openAssign(order)}>{assignment ? 'Réassigner' : 'Assigner'}</button>}
+          {canManage && assignment && !['picked_up','out_for_delivery','delivered'].includes(assignment.status) && <button className="btn ghost" type="button" onClick={()=>unassign(order)}>Retirer</button>}
+          {canFinance && assignment?.status==='delivered' && assignment.collection_status==='collected' && <button className="btn gold" type="button" onClick={()=>confirmRemittance(assignment)}>Confirmer remise NKS</button>}
+          {canManage && <button className="btn ghost" type="button" onClick={() => openUpdate(order)}>Forcer statut</button>}
+        </div>
+      </article>
+    }) : <Empty/>}</div>}
+
+    {(data?.incidents||[]).length > 0 && <section className="panel">
+      <h3>Problèmes signalés par les livreurs</h3>
+      <div className="delivery-incident-list">{data.incidents.map(incident=>{
+        const courier=courierById[incident.courier_user_id]
+        const order=(data.orders||[]).find(row=>row.id===incident.order_id)
+        return <div className="delivery-incident-row" key={incident.id}>
+          <div><strong>{order?.order_number || 'Commande'}</strong><span>{incident.incident_type.replaceAll('_',' ')}</span><small>{courier?.full_name || 'Livreur'} · {incident.description}</small></div>
+          {canManage && <button className="btn ghost" type="button" onClick={()=>openIncident(incident)}>Résoudre</button>}
+        </div>
+      })}</div>
+    </section>}
+
+    <ConfirmModal open={modal?.type==='status'} title="Mettre à jour la livraison" text={modal?.order?.order_number} onClose={()=>setModal(null)} onConfirm={saveStatus}>
+      <label>Statut<select value={nextStatus} onChange={e=>setNextStatus(e.target.value)}>{DELIVERY_STATUSES.map(s=><option key={s} value={s}>{LOGISTICS_LABELS[s]}</option>)}</select></label>
+    </ConfirmModal>
+
+    <ConfirmModal open={modal?.type==='assign'} title="Assigner un livreur" text={modal?.order?.order_number} onClose={()=>setModal(null)} onConfirm={saveAssign}>
+      <label>Livreur<select value={courierId} onChange={e=>setCourierId(e.target.value)}><option value="">Choisir…</option>{(data?.couriers||[]).filter(row=>row.status==='active').map(row=><option key={row.user_id} value={row.user_id}>{row.full_name} · {row.employee_code} · {row.active_assignments || 0} course(s)</option>)}</select></label>
+      {!(data?.couriers||[]).some(row=>row.status==='active') && <div className="alert bad">Aucun livreur actif. Créez d’abord un compte dans « Livreurs ».</div>}
+    </ConfirmModal>
+
+    <ConfirmModal open={modal?.type==='incident'} title="Clôturer le signalement" text={modal?.incident?.description} onClose={()=>setModal(null)} onConfirm={resolveIncident}>
+      <label>Résolution<textarea rows={3} value={resolution} onChange={e=>setResolution(e.target.value)} placeholder="Ex. Client recontacté, livraison reprise…"/></label>
+    </ConfirmModal>
   </>
 }

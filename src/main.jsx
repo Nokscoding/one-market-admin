@@ -7,6 +7,7 @@ import './styles.css'
 import './admin-v2.css'
 import './notifications.css'
 import './push.css'
+import './courier.css'
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>

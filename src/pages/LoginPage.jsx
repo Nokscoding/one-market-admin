@@ -14,7 +14,9 @@ export default function LoginPage() {
   const [error, setError] = useState('')
 
   useEffect(() => {
-    if (user && staff?.status === 'active') navigate('/', { replace: true })
+    if (user && staff?.status === 'active') {
+      navigate(staff.staff_role === 'COURIER' ? '/courier' : '/', { replace: true })
+    }
   }, [user, staff, navigate])
 
   async function submit(event) {
@@ -40,7 +42,7 @@ export default function LoginPage() {
       <form className="login-card" onSubmit={submit}>
         <span className="eyebrow">Accès sécurisé</span>
         <h2>Connexion ERP</h2>
-        <p>Réservé au personnel autorisé One Market.</p>
+        <p>Personnel NKS et livreurs One Market autorisés.</p>
         <label>Email<input type="email" required autoComplete="email" value={email} onChange={event => setEmail(event.target.value)} /></label>
         <label>Mot de passe<input type="password" required autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)} /></label>
         {error && <div className="alert bad">{error}</div>}

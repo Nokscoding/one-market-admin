@@ -19,6 +19,7 @@ const NAV = [
   ['/promotions', Megaphone, 'Carrousel accueil', '__super_admin__'],
   ['/orders', Package, 'Commandes', 'orders.view'],
   ['/delivery', Truck, 'Livraisons', 'delivery.view'],
+  ['/couriers', Users, 'Livreurs', 'delivery.manage'],
   ['/support', Headphones, 'Signalements', 'support.view'],
   ['/conversations', MessageSquare, 'Conversations', 'conversations.view'],
   ['/finance', CircleDollarSign, 'Finances', 'finance.view'],
