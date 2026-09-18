@@ -11,6 +11,21 @@ export function logAdminError(context, error) {
 export function adminUserError(error, fallback = 'Une erreur est survenue. Réessayez.') {
   const raw = rawMessage(error)
   const message = raw.toLowerCase()
+  const businessErrors = {
+    delivery_not_completed: 'Confirmez la livraison avant d’enregistrer l’encaissement.',
+    invalid_delivery_transition: 'Terminez l’étape précédente de la livraison avant de continuer.',
+    order_status_final: 'Cette commande est terminée. Son statut ne peut plus être modifié.',
+    seller_order_final: 'Cette commande vendeur est terminée.',
+    payout_status_final: 'Ce règlement est terminé. Créez un nouveau règlement si nécessaire.',
+    payout_not_ready: 'Ce règlement ne peut pas passer à cette étape.',
+    paid_payout_immutable: 'Un règlement payé ne peut plus être modifié.',
+    no_eligible_seller_orders: 'Aucune commande livrée et encaissée n’est disponible pour ce règlement.',
+    payment_reference_required: 'Ajoutez la référence du paiement avant de confirmer.',
+    payment_not_confirmed: 'Confirmez le paiement Mobile Money avant de poursuivre.',
+    erp_super_admin_only: 'Cette action est réservée au Super Admin.',
+    multi_currency_payout_not_supported: 'Sélectionnez une période contenant une seule devise.',
+  }
+  for (const [code, text] of Object.entries(businessErrors)) if (message.includes(code)) return text
 
   if (!message) return fallback
   if (message.includes('failed to fetch') || message.includes('network') || message.includes('load failed')) {

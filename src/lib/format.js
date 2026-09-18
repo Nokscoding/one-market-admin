@@ -56,3 +56,6 @@ export function tone(value) {
   if (['pending','pending_confirmation','under_review','in_progress','ready','preparing','picked_up','out_for_delivery','problem','partially_completed','needs_information','escalated','payment_submitted','pending_on_delivery','scheduled','awaiting_mobile_money'].includes(value)) return 'warn'
   return 'neutral'
 }
+
+export const STATUS_LABELS = { ...ORDER_LABELS, ...PAYMENT_LABELS, ...SELLER_LABELS, ...TICKET_LABELS, active: 'Actif', inactive: 'Inactif', disabled: 'Désactivé', coming_soon: 'Bientôt disponible', expired: 'Expiré', scheduled: 'Programmé', unsettled: 'À régler', approved: 'Approuvé', cancelled: 'Annulé', paid: 'Payé', failed: 'Échec' }
+export const statusLabel = value => STATUS_LABELS[value] || 'En cours'

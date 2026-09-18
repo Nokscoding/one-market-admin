@@ -1,5 +1,5 @@
 import { Boxes, Search, X } from 'lucide-react'
-import { tone } from '../lib/format'
+import { tone, statusLabel } from '../lib/format'
 
 export function Loader({ fullscreen = false }) {
   return <div className={fullscreen ? 'screen-center' : 'loader-inline'}><div className="spinner"/><span>Chargement…</span></div>
@@ -10,7 +10,7 @@ export function Empty({ children = 'Aucune donnée pour le moment.' }) {
 }
 
 export function Badge({ value, label }) {
-  return <span className={`status ${tone(value)}`}>{label || value || '—'}</span>
+  return <span className={`status ${tone(value)}`}>{label || (value ? statusLabel(value) : '—')}</span>
 }
 
 export function SectionHead({ eyebrow, title, desc, actions }) {
@@ -22,12 +22,12 @@ export function Metric({ icon: Icon, label, value, sub }) {
 }
 
 export function SearchBar({ value, onChange, placeholder = 'Rechercher' }) {
-  return <div className="searchbar"><Search size={17}/><input value={value} onChange={event => onChange(event.target.value)} placeholder={placeholder}/></div>
+  return <div className="searchbar"><Search size={17}/><input aria-label={placeholder} value={value} onChange={event => onChange(event.target.value)} placeholder={placeholder}/></div>
 }
 
 export function Table({ headers, rows }) {
   if (!rows?.length) return <Empty/>
-  return <div className="table-wrap"><table><thead><tr>{headers.map((header, index) => <th key={index}>{header}</th>)}</tr></thead><tbody>{rows.map((row, rowIndex) => <tr key={rowIndex}>{row.map((cell, cellIndex) => <td key={cellIndex}>{cell}</td>)}</tr>)}</tbody></table></div>
+  return <div className="table-wrap" tabIndex="0" role="region" aria-label="Tableau, défilement horizontal disponible"><table><thead><tr>{headers.map((header, index) => <th scope="col" key={index}>{header}</th>)}</tr></thead><tbody>{rows.map((row, rowIndex) => <tr key={rowIndex}>{row.map((cell, cellIndex) => <td key={cellIndex}>{cell}</td>)}</tr>)}</tbody></table></div>
 }
 
 export function Info({ label, value }) {

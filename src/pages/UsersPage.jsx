@@ -1,3 +1,4 @@
+import { adminUserError } from '../lib/userErrors'
 import { useState } from 'react'
 import { NavLink, useParams } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
@@ -19,7 +20,7 @@ export function UsersPage() {
 
   return <>
     <SectionHead eyebrow="Marketplace" title="Utilisateurs" desc="Comptes, activité commerciale et accès One Market." actions={staff?.staff_role === 'SUPER_ADMIN' && <button className="btn primary" type="button" onClick={() => setCreateOpen(true)}>Créer un utilisateur</button>}/>
-    <SearchBar value={search} onChange={setSearch} placeholder="Nom, email, téléphone ou UUID"/>
+    <SearchBar value={search} onChange={setSearch} placeholder="Nom, e-mail ou téléphone"/>
     {error && <div className="alert bad">{error}</div>}
     {loading ? <Loader/> : <Table headers={['Utilisateur','Rôle','Statut','Commandes','Dépensé','Abonnement','Création','']} rows={(data || []).map(user => [
       <div><strong>{user.full_name || 'Sans nom'}</strong><span>{user.email}{user.staff_role ? ` · ${ROLE_LABELS[user.staff_role] || user.staff_role}` : ''}</span></div>,
@@ -102,7 +103,7 @@ export function UserDetailPage() {
   async function changeStatus(status) {
     setActionError('')
     const { error } = await supabase.rpc('erp_set_user_status', { p_user_id: id, p_status: status, p_reason: reason || 'Réactivation ERP' })
-    if (error) return setActionError(error.message)
+    if (error) return setActionError(adminUserError(error))
     setPendingStatus(null); setReason(''); reload()
   }
 

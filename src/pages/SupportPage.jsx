@@ -1,3 +1,4 @@
+import { adminUserError } from '../lib/userErrors'
 import { useMemo, useState } from 'react'
 import { MessageSquare } from 'lucide-react'
 import { NavLink, useParams } from 'react-router-dom'
@@ -29,10 +30,10 @@ export function TicketDetailPage(){
   const {id}=useParams(); const [message,setMessage]=useState(''); const [internal,setInternal]=useState(false); const [statusModal,setStatusModal]=useState(null); const [resolution,setResolution]=useState(''); const [actionError,setActionError]=useState('')
   const {data,loading,reload}=useLoad(async()=>{const [{data:tickets,error},{data:messages,error:messageError}]=await Promise.all([supabase.rpc('erp_support_tickets',{p_status:null,p_ticket_id:id,p_limit:1}),supabase.from('support_ticket_messages').select('*').eq('ticket_id',id).order('created_at')]);if(error)throw error;if(messageError)throw messageError;return{ticket:tickets?.[0]||null,messages:messages||[]}},[id])
   if(loading)return <Loader/>; if(!data?.ticket)return <Empty>Ticket introuvable.</Empty>; const ticket=data.ticket
-  async function reply(){if(!message.trim())return;setActionError('');const {error}=await supabase.rpc('erp_reply_support_ticket',{p_ticket_id:id,p_message:message,p_internal:internal});if(error)return setActionError(error.message);setMessage('');reload()}
+  async function reply(){if(!message.trim())return;setActionError('');const {error}=await supabase.rpc('erp_reply_support_ticket',{p_ticket_id:id,p_message:message,p_internal:internal});if(error)return setActionError(adminUserError(error));setMessage('');reload()}
   function openStatus(status){setResolution('');setStatusModal(status)}
-  async function saveStatus(){setActionError('');const {error}=await supabase.rpc('erp_update_support_ticket',{p_ticket_id:id,p_status:statusModal,p_priority:null,p_assigned_to:null,p_department:null,p_resolution:statusModal==='resolved'?(resolution||'Résolu'):null,p_escalated_to:null});if(error)return setActionError(error.message);setStatusModal(null);reload()}
-  async function escalate(target){setActionError('');const department=target==='MODERATION'?'MODERATION':target==='OPERATIONS'?'OPERATIONS':'ACCOUNTING';const {error}=await supabase.rpc('erp_update_support_ticket',{p_ticket_id:id,p_status:'escalated',p_priority:null,p_assigned_to:null,p_department:department,p_resolution:null,p_escalated_to:target});if(error)return setActionError(error.message);reload()}
+  async function saveStatus(){setActionError('');const {error}=await supabase.rpc('erp_update_support_ticket',{p_ticket_id:id,p_status:statusModal,p_priority:null,p_assigned_to:null,p_department:null,p_resolution:statusModal==='resolved'?(resolution||'Résolu'):null,p_escalated_to:null});if(error)return setActionError(adminUserError(error));setStatusModal(null);reload()}
+  async function escalate(target){setActionError('');const department=target==='MODERATION'?'MODERATION':target==='OPERATIONS'?'OPERATIONS':'ACCOUNTING';const {error}=await supabase.rpc('erp_update_support_ticket',{p_ticket_id:id,p_status:'escalated',p_priority:null,p_assigned_to:null,p_department:department,p_resolution:null,p_escalated_to:target});if(error)return setActionError(adminUserError(error));reload()}
   return <>
     <SectionHead eyebrow="Ticket support" title={ticket.ticket_number||'Signalement'} desc={ticket.subject}/>
     {actionError&&<div className="alert bad">{actionError}</div>}
