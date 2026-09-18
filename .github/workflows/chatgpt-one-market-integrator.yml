@@ -1,0 +1,78 @@
+name: ChatGPT One Market Admin Integrator
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  integrate:
+    if: github.event.issue.title == 'RUN_CHATGPT_ONE_MARKET_ADMIN_INTEGRATION_20260918'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout integration branch
+        uses: actions/checkout@v4
+        with:
+          ref: chatgpt/integration-20260918-admin
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Reconstruct patch
+        shell: bash
+        run: |
+          cat .patches/admin-00.z .patches/admin-01.z .patches/admin-02.z .patches/admin-03.z .patches/admin-04.z > /tmp/one-market-admin.z
+          python3 - <<'PY'
+          import zlib
+          from pathlib import Path
+          data = Path('/tmp/one-market-admin.z').read_bytes()
+          patch = zlib.decompress(data)
+          Path('/tmp/one-market-admin.patch').write_bytes(patch)
+          print("patch bytes", len(patch))
+          PY
+
+      - name: Apply and build
+        id: validate
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          : > /tmp/integration.log
+          {
+            echo "== git apply --check =="
+            git apply --check /tmp/one-market-admin.patch
+            echo "== git apply =="
+            git apply /tmp/one-market-admin.patch
+            echo "== npm ci =="
+            npm ci
+            echo "== npm run build =="
+            npm run build
+          } 2>&1 | tee /tmp/integration.log
+          exit ${PIPESTATUS[0]}
+
+      - name: Commit validated source
+        if: steps.validate.outcome == 'success'
+        shell: bash
+        run: |
+          rm -rf .patches
+          rm -f .github/workflows/one-market-integration.yml
+          rm -f .integration-failure.log
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: integrate One Market admin corrections [skip netlify]"
+          git push origin HEAD:chatgpt/integration-20260918-admin
+
+      - name: Commit diagnostics
+        if: steps.validate.outcome != 'success'
+        shell: bash
+        run: |
+          cp /tmp/integration.log .integration-failure.log
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .integration-failure.log
+          git commit -m "chore: record admin integration failure [skip netlify]"
+          git push origin HEAD:chatgpt/integration-20260918-admin
+          exit 1
