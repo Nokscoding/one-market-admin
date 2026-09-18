@@ -10,6 +10,7 @@ permissions:
 
 jobs:
   integrate-and-build:
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout validation branch
@@ -17,39 +18,63 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Reconstruct and apply patch
+      - name: Reconstruct patch
         shell: bash
         run: |
+          set -o pipefail
           cat .patches/admin-00.z .patches/admin-01.z .patches/admin-02.z .patches/admin-03.z .patches/admin-04.z > /tmp/one-market-admin.z
           python3 - <<'PY'
           import zlib
           from pathlib import Path
           data = Path('/tmp/one-market-admin.z').read_bytes()
           Path('/tmp/one-market-admin.patch').write_bytes(zlib.decompress(data))
+          print(f"reconstructed patch bytes={Path('/tmp/one-market-admin.patch').stat().st_size}")
           PY
-          git apply --check /tmp/one-market-admin.patch
-          git apply /tmp/one-market-admin.patch
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: npm
+      - name: Apply patch and build
+        id: validate
+        shell: bash
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          : > /tmp/integration.log
+          {
+            echo "== git apply --check =="
+            git apply --check /tmp/one-market-admin.patch
+            echo "== git apply =="
+            git apply /tmp/one-market-admin.patch
+            echo "== node/npm =="
+            node --version
+            npm --version
+            echo "== npm ci =="
+            npm ci
+            echo "== npm run build =="
+            npm run build
+          } 2>&1 | tee /tmp/integration.log
+          exit ${PIPESTATUS[0]}
 
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build
-        run: npm run build
-
-      - name: Replace transport files with integrated source
+      - name: Commit validated integration
+        if: steps.validate.outcome == 'success'
         shell: bash
         run: |
           rm -rf .patches
           rm -f .github/workflows/one-market-integration.yml
+          rm -f .integration-failure.log
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
           git diff --cached --quiet && exit 0
           git commit -m "fix: integrate One Market admin corrections"
           git push origin "HEAD:$GITHUB_REF_NAME"
+
+      - name: Commit diagnostic log
+        if: steps.validate.outcome != 'success'
+        shell: bash
+        run: |
+          cp /tmp/integration.log .integration-failure.log
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .integration-failure.log
+          git commit -m "chore: record admin integration failure"
+          git push origin "HEAD:$GITHUB_REF_NAME"
+          exit 1
