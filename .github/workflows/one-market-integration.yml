@@ -81,3 +81,5 @@ jobs:
           git commit -m "chore: record admin integration failure"
           git push origin "HEAD:$GITHUB_REF_NAME"
           exit 1
+
+# trigger base validation
