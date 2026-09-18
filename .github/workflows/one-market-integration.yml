@@ -1,89 +1,94 @@
-name: One Market Admin integration validation
+name: One Market Admin native integration
 
 on:
   push:
     branches:
       - chatgpt/integration-20260918-admin
-  pull_request:
-    branches:
-      - main
 
 permissions:
   contents: write
 
 jobs:
-  integrate-and-build:
+  integrate:
     if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout validation branch
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Reconstruct patch
+      - name: Integrate and validate
         shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          set -o pipefail
-          cat .patches/admin-00.z .patches/admin-01.z .patches/admin-02.z .patches/admin-03.z .patches/admin-04.z > /tmp/one-market-admin.z
-          python3 - <<'PY'
-          import zlib
-          from pathlib import Path
-          data = Path('/tmp/one-market-admin.z').read_bytes()
-          Path('/tmp/one-market-admin.patch').write_bytes(zlib.decompress(data))
-          print(f"reconstructed patch bytes={Path('/tmp/one-market-admin.patch').stat().st_size}")
-          PY
-
-      - name: Apply patch and build
-        id: validate
-        shell: bash
-        continue-on-error: true
-        run: |
-          set -o pipefail
+          set +e
           : > /tmp/integration.log
-          {
-            echo "== git apply --check =="
+          exec > >(tee -a /tmp/integration.log) 2>&1
+
+          STATUS=0
+          echo "== clone branch =="
+          git clone --branch chatgpt/integration-20260918-admin "https://x-access-token:${GH_TOKEN}@github.com/Nokscoding/one-market-admin.git" repo
+          STATUS=$?
+
+          if [ "$STATUS" -eq 0 ]; then
+            cd repo
+            echo "== reconstruct patch =="
+            cat .patches/admin-00.z .patches/admin-01.z .patches/admin-02.z .patches/admin-03.z .patches/admin-04.z > /tmp/one-market-admin.z
+            STATUS=$?
+          fi
+
+          if [ "$STATUS" -eq 0 ]; then
+            python3 - <<'PY'
+            import zlib
+            from pathlib import Path
+            data = Path('/tmp/one-market-admin.z').read_bytes()
+            patch = zlib.decompress(data)
+            Path('/tmp/one-market-admin.patch').write_bytes(patch)
+            print("patch bytes", len(patch))
+            PY
+            STATUS=$?
+          fi
+
+          if [ "$STATUS" -eq 0 ]; then
+            echo "== git apply check =="
             git apply --check /tmp/one-market-admin.patch
-            echo "== git apply =="
+            STATUS=$?
+          fi
+
+          if [ "$STATUS" -eq 0 ]; then
+            echo "== apply patch =="
             git apply /tmp/one-market-admin.patch
-            echo "== node/npm =="
-            node --version
-            npm --version
-            echo "== npm ci =="
+            STATUS=$?
+          fi
+
+          if [ "$STATUS" -eq 0 ]; then
+            echo "== install =="
             npm ci
-            echo "== npm run build =="
+            STATUS=$?
+          fi
+
+          if [ "$STATUS" -eq 0 ]; then
+            echo "== build =="
             npm run build
-          } 2>&1 | tee /tmp/integration.log
-          exit ${PIPESTATUS[0]}
+            STATUS=$?
+          fi
 
-      - name: Commit validated integration
-        if: steps.validate.outcome == 'success'
-        shell: bash
-        run: |
-          rm -rf .patches
-          rm -f .github/workflows/one-market-integration.yml
-          rm -f .integration-failure.log
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git diff --cached --quiet && exit 0
-          git commit -m "fix: integrate One Market admin corrections"
-          git push origin "HEAD:$GITHUB_REF_NAME"
+          git config user.name "github-actions[bot]" 2>/dev/null || true
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com" 2>/dev/null || true
 
-      - name: Commit diagnostic log
-        if: steps.validate.outcome != 'success'
-        shell: bash
-        run: |
-          cp /tmp/integration.log .integration-failure.log
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .integration-failure.log
-          git commit -m "chore: record admin integration failure"
-          git push origin "HEAD:$GITHUB_REF_NAME"
-          exit 1
+          if [ "$STATUS" -eq 0 ]; then
+            echo "== commit validated source =="
+            rm -rf .patches
+            rm -f .github/workflows/one-market-integration.yml .integration-failure.log
+            git add -A
+            git commit -m "fix: integrate One Market admin corrections [skip netlify]"
+            STATUS=$?
+          else
+            echo "== persist failure diagnostic =="
+            cp /tmp/integration.log .integration-failure.log 2>/dev/null || true
+            git add .integration-failure.log 2>/dev/null || true
+            git commit -m "chore: record admin integration failure [skip netlify]" 2>/dev/null || true
+          fi
 
-# trigger base validation
-
-# diagnostic retry
-
-# native validator trigger
+          echo "== push result =="
+          git push origin HEAD:chatgpt/integration-20260918-admin
+          PUSH_STATUS=$?
+          if [ "$STATUS" -eq 0 ]; then STATUS=$PUSH_STATUS; fi
+          exit "$STATUS"
