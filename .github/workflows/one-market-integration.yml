@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - chatgpt/integration-20260918-admin
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: write
