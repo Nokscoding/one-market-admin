@@ -3,6 +3,9 @@ name: ChatGPT One Market Admin Integrator
 on:
   issues:
     types: [opened, reopened]
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
 
 permissions:
   contents: write
@@ -10,7 +13,7 @@ permissions:
 
 jobs:
   integrate:
-    if: github.event.issue.title == 'RUN_CHATGPT_ONE_MARKET_ADMIN_INTEGRATION_20260918'
+    if: github.event_name == 'pull_request' || github.event.issue.title == 'RUN_CHATGPT_ONE_MARKET_ADMIN_INTEGRATION_20260918'
     runs-on: ubuntu-latest
     steps:
       - name: Native integrate, build, report
