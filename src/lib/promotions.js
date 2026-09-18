@@ -5,6 +5,9 @@ export function normalizePromotions(value) {
   return {
     enabled: raw.enabled !== false,
     autoplay_seconds: Math.max(3, Math.min(15, Number(raw.autoplay_seconds) || 6)),
+    desktop_height: Math.max(180, Math.min(640, Number(raw.desktop_height) || 320)),
+    mobile_height: Math.max(140, Math.min(520, Number(raw.mobile_height) || 240)),
+    media_fit: raw.media_fit === 'contain' ? 'contain' : 'cover',
     items: (Array.isArray(raw.items) ? raw.items : []).map((item, index) => ({
       ...EMPTY_PROMOTION, ...item, id: item.id || 'legacy-promotion-' + index,
       active: item.active !== false, target_blank: item.target_blank === true,
