@@ -5,10 +5,12 @@ function urlBase64ToUint8Array(value) {
   return Uint8Array.from([...raw].map(char => char.charCodeAt(0)))
 }
 
-export async function ensureCourierPushSubscription({ supabase, userId }) {
+export async function ensurePushSubscription({ supabase, userId, app = 'erp' }) {
   if (!userId || typeof window === 'undefined') return false
   if (!('Notification' in window) || !('serviceWorker' in navigator) || !('PushManager' in window)) return false
 
+  // Native permission must be requested immediately from the user's click.
+  // Network work before requestPermission can consume the browser's transient user activation.
   let permission = window.Notification.permission
   if (permission === 'default') permission = await window.Notification.requestPermission()
   if (permission !== 'granted') return false
@@ -39,7 +41,7 @@ export async function ensureCourierPushSubscription({ supabase, userId }) {
 
   const { error } = await supabase.from('push_subscriptions').upsert({
     user_id: userId,
-    app: 'courier',
+    app,
     endpoint: subscription.endpoint,
     p256dh: json.keys.p256dh,
     auth: json.keys.auth,
@@ -49,6 +51,10 @@ export async function ensureCourierPushSubscription({ supabase, userId }) {
   }, { onConflict: 'endpoint' })
   if (error) throw error
 
-  window.localStorage.setItem('om_push_enabled_courier', '1')
+  window.localStorage.setItem(`om_push_enabled_${app}`, '1')
   return true
+}
+
+export function ensureCourierPushSubscription({ supabase, userId }) {
+  return ensurePushSubscription({ supabase, userId, app: 'courier' })
 }
