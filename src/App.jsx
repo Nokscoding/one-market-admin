@@ -40,7 +40,7 @@ export default function App() {
 
   return <Routes>
     <Route path="/login" element={loading ? <Loader fullscreen/> : user && staff?.status === 'active' ? <Navigate to={signedInTarget} replace/> : <LoginPage/>}/>
-    <Route path="/courier" element={<CourierGate/>}/>
+    <Route path="/courier/*" element={<CourierGate/>}/>
     <Route element={<AccessGate/>}>
       <Route element={<Layout/>}>
         <Route index element={<DashboardPage/>}/>

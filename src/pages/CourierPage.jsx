@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle, Bike, CheckCircle2, ChevronRight, CircleAlert, CircleDollarSign,
   ClipboardCopy, Clock3, History, Home, ListTodo, LogOut, MapPin, MapPinned,
-  MessageCircle, Navigation, PackageCheck, Phone, Plus, Power, RefreshCw, Route,
-  ShieldCheck, Store, Truck, WalletCards,
+  Camera, MessageCircle, Navigation, PackageCheck, Phone, Plus, Power, QrCode,
+  RefreshCw, Route, ShieldCheck, Store, Truck, WalletCards, X,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
@@ -255,6 +255,12 @@ export default function CourierPage() {
   const [error, setError] = useState('')
   const [incident, setIncident] = useState(null)
   const [incidentForm, setIncidentForm] = useState({ type: 'client_unreachable', description: '' })
+  const [scanner, setScanner] = useState(null)
+  const [manualCode, setManualCode] = useState('')
+  const [scanError, setScanError] = useState('')
+  const [deepLinkHandled, setDeepLinkHandled] = useState(false)
+  const scannerLock = useRef(false)
+  const scannerVideoRef = useRef(null)
 
   const load = useCallback(async ({ silent = false } = {}) => {
     if (!silent) setLoading(true)
@@ -278,6 +284,125 @@ export default function CourierPage() {
     const timer = window.setInterval(() => load({ silent: true }), 25000)
     return () => window.clearInterval(timer)
   }, [load])
+
+  useEffect(() => {
+    if (!scanner) return undefined
+
+    let active = true
+    let stream = null
+    let frame = 0
+    scannerLock.current = false
+
+    ;(async () => {
+      if (!('BarcodeDetector' in window) || !navigator.mediaDevices?.getUserMedia) {
+        setScanError('Le scanner intégré n’est pas disponible ici. Scannez le QR avec la caméra du téléphone ou utilisez le code manuel.')
+        return
+      }
+
+      try {
+        const detector = new window.BarcodeDetector({ formats: ['qr_code'] })
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: 'environment' } },
+          audio: false,
+        })
+        if (!active) {
+          stream.getTracks().forEach(track => track.stop())
+          return
+        }
+
+        const video = scannerVideoRef.current
+        if (!video) return
+        video.srcObject = stream
+        await video.play()
+
+        const detect = async () => {
+          if (!active) return
+          try {
+            const codes = await detector.detect(video)
+            const raw = codes?.[0]?.rawValue
+            if (raw && !scannerLock.current) {
+              scannerLock.current = true
+              const ok = await verifyPickupCode(raw)
+              if (!ok) scannerLock.current = false
+            }
+          } catch (_) {}
+          if (active) frame = window.requestAnimationFrame(detect)
+        }
+        frame = window.requestAnimationFrame(detect)
+      } catch (cameraError) {
+        if (!active) return
+        logAdminError('courier-qr-camera', cameraError)
+        setScanError('Impossible d’ouvrir la caméra. Autorisez-la, scannez avec la caméra du téléphone ou utilisez le code manuel.')
+      }
+    })()
+
+    return () => {
+      active = false
+      scannerLock.current = false
+      if (frame) window.cancelAnimationFrame(frame)
+      if (stream) stream.getTracks().forEach(track => track.stop())
+      if (scannerVideoRef.current) scannerVideoRef.current.srcObject = null
+    }
+  }, [scanner?.assignment_id, scanner?.pickup?.seller_order_id])
+
+  useEffect(() => {
+    if (loading || deepLinkHandled) return
+
+    const params = new URLSearchParams(window.location.search)
+    const pickupCode = params.get('pickup')
+    const sellerOrderId = params.get('so')
+    if (!pickupCode || !sellerOrderId) {
+      setDeepLinkHandled(true)
+      return
+    }
+
+    const delivery = deliveries.find(item => (item.pickups || []).some(pickup => pickup.seller_order_id === sellerOrderId))
+    if (!delivery) {
+      setError('Ce QR ne correspond à aucune de vos courses assignées.')
+      setDeepLinkHandled(true)
+      window.history.replaceState({}, '', '/courier')
+      return
+    }
+
+    ;(async () => {
+      setBusy('scan-link')
+      setError('')
+      try {
+        if (delivery.assignment_status === 'assigned') {
+          const { error: acceptError } = await supabase.rpc('courier_delivery_action', {
+            p_assignment_id: delivery.assignment_id,
+            p_action: 'accept',
+          })
+          if (acceptError) throw acceptError
+        }
+
+        const { data, error: verifyError } = await supabase.rpc('courier_verify_pickup_code', {
+          p_assignment_id: delivery.assignment_id,
+          p_code: pickupCode,
+          p_expected_seller_order_id: sellerOrderId,
+        })
+        if (verifyError) throw verifyError
+
+        setTab('active')
+        setError(data?.all_verified
+          ? 'QR validé : tous les colis de cette mission sont vérifiés.'
+          : 'QR validé : colis de la boutique vérifié.')
+        await load({ silent: true })
+      } catch (scanLinkError) {
+        logAdminError('courier-pickup-deep-link', scanLinkError)
+        const raw = scanLinkError?.message || ''
+        setError(raw.includes('PICKUP_CODE_WRONG_ORDER')
+          ? 'Ce QR appartient à une autre commande.'
+          : raw.includes('PICKUP_NOT_READY')
+            ? 'Ce colis n’est pas encore prêt.'
+            : 'Impossible de valider ce QR. Vérifiez que la course vous est bien assignée.')
+      } finally {
+        setBusy('')
+        setDeepLinkHandled(true)
+        window.history.replaceState({}, '', '/courier')
+      }
+    })()
+  }, [loading, deepLinkHandled, deliveries, load])
 
   const activeDeliveries = useMemo(
     () => deliveries.filter(item => !['delivered','cancelled','problem'].includes(item.assignment_status)),
@@ -349,10 +474,63 @@ export default function CourierPage() {
       logAdminError('courier-action', actionError)
       const message = actionError.message?.includes('ORDER_NOT_READY')
         ? 'Toutes les boutiques n’ont pas encore marqué leurs articles comme prêts.'
-        : 'Impossible de mettre à jour cette livraison.'
+        : actionError.message?.includes('PICKUP_QR_REQUIRED')
+          ? 'Scannez le QR de chaque boutique avant de confirmer le ramassage.'
+          : 'Impossible de mettre à jour cette livraison.'
       return setError(message)
     }
     await load({ silent: true })
+  }
+
+  function openScanner(item, pickup) {
+    setScanError('')
+    setManualCode('')
+    setScanner({ assignment_id: item.assignment_id, order_number: item.order_number, pickup })
+  }
+
+  async function verifyPickupCode(rawCode) {
+    if (!scanner || busy === 'scan') return false
+    let code = String(rawCode || '').trim()
+    if (/^https?:\/\//i.test(code)) {
+      try {
+        const url = new URL(code)
+        code = url.searchParams.get('pickup') || code
+      } catch (_) {}
+    }
+    if (!code) {
+      setScanError('Scannez le QR ou saisissez le code manuel.')
+      return false
+    }
+
+    setBusy('scan')
+    setScanError('')
+    const { data, error: verifyError } = await supabase.rpc('courier_verify_pickup_code', {
+      p_assignment_id: scanner.assignment_id,
+      p_code: code,
+      p_expected_seller_order_id: scanner.pickup.seller_order_id,
+    })
+    setBusy('')
+
+    if (verifyError) {
+      logAdminError('courier-pickup-qr', verifyError)
+      const raw = verifyError.message || ''
+      const message = raw.includes('PICKUP_CODE_WRONG_STORE')
+        ? 'Ce QR appartient à une autre boutique de la mission.'
+        : raw.includes('PICKUP_CODE_WRONG_ORDER')
+          ? 'Ce QR appartient à une autre commande.'
+          : raw.includes('PICKUP_NOT_ACTIVE')
+            ? 'Acceptez la course avant de scanner le colis.'
+            : raw.includes('PICKUP_NOT_READY')
+              ? 'La boutique n’a pas encore marqué ce colis comme prêt.'
+              : 'QR non reconnu. Vérifiez le code avec le vendeur.'
+      setScanError(message)
+      return false
+    }
+
+    setScanError(data?.all_verified ? 'Tous les ramassages sont vérifiés.' : `${data?.store_name || 'Boutique'} vérifiée.`)
+    await load({ silent: true })
+    window.setTimeout(() => setScanner(null), 650)
+    return true
   }
 
   function openIncident(item) {
@@ -406,18 +584,44 @@ export default function CourierPage() {
 
       <section className="courier-step-block">
         <div className="courier-block-title"><Store size={18}/><span><strong>Récupération</strong><small>{(item.pickups || []).length} boutique{(item.pickups || []).length > 1 ? 's' : ''}</small></span></div>
-        <div className="courier-pickups">{(item.pickups || []).map(pickup => {
+        <div className="courier-pickups">{(item.pickups || []).map((pickup, pickupIndex) => {
           const pickupMap = mapsUrl(pickup)
-          return <div className="courier-pickup" key={pickup.seller_order_id}>
-            <div>
-              <strong>{pickup.store_name}</strong>
-              <span>{pickup.contact_name || 'Contact boutique'}</span>
-              <small>{addressText(pickup) || 'Adresse de retrait à compléter par NKS'}</small>
-              {pickup.instructions && <small className="note">{pickup.instructions}</small>}
-            </div>
-            <div className="courier-mini-actions">
-              {pickup.phone && <a href={`tel:${pickup.phone}`}><Phone size={16}/></a>}
-              {pickupMap && <a href={pickupMap} target="_blank" rel="noreferrer"><Navigation size={16}/></a>}
+          const verified = pickup.pickup_verified === true
+          const canScan = ['accepted','picking_up'].includes(item.assignment_status)
+          return <div className={`courier-pickup ${verified ? 'verified' : ''}`} key={pickup.seller_order_id}>
+            <div className="courier-pickup-main">
+              <div className="courier-pickup-heading">
+                <span className="courier-pickup-number">{pickupIndex + 1}</span>
+                <div>
+                  <strong>{pickup.store_name}</strong>
+                  <span>{pickup.contact_name || 'Contact boutique'}</span>
+                  <small>{addressText(pickup) || 'Adresse de retrait à compléter par NKS'}</small>
+                  {pickup.instructions && <small className="note">{pickup.instructions}</small>}
+                </div>
+                <div className="courier-mini-actions">
+                  {pickup.phone && <a href={`tel:${pickup.phone}`}><Phone size={16}/></a>}
+                  {pickupMap && <a href={pickupMap} target="_blank" rel="noreferrer"><Navigation size={16}/></a>}
+                </div>
+              </div>
+
+              <div className="courier-pickup-items">
+                {(pickup.items || []).map(line => <div className="courier-pickup-item" key={line.id}>
+                  <div className="courier-pickup-item-image">{line.image_url ? <img src={line.image_url} alt=""/> : <PackageCheck size={20}/>}</div>
+                  <div>
+                    <strong>{line.name}</strong>
+                    {Object.keys(line.variant || {}).length > 0 && <small>{Object.values(line.variant).join(' · ')}</small>}
+                    <span>Quantité : <b>{line.quantity}</b></span>
+                  </div>
+                </div>)}
+              </div>
+
+              <div className="courier-pickup-verify">
+                {verified
+                  ? <div className="courier-verified-badge"><CheckCircle2 size={17}/> QR vérifié · colis correct</div>
+                  : canScan
+                    ? <button type="button" onClick={() => openScanner(item,pickup)}><QrCode size={18}/>Scanner le QR vendeur</button>
+                    : <div className="courier-scan-hint"><QrCode size={16}/>Acceptez la course pour vérifier le colis</div>}
+              </div>
             </div>
           </div>
         })}</div>
@@ -446,9 +650,10 @@ export default function CourierPage() {
       {(item.items || []).length > 0 && <details className="courier-items"><summary><PackageCheck size={17}/>Voir les articles ({(item.items || []).reduce((sum,row)=>sum+Number(row.quantity||0),0)})</summary>{(item.items || []).map((row,index)=><div key={`${row.store_id}-${index}`}><span>{row.name}</span><b>× {row.quantity}</b></div>)}</details>}
 
       <footer className="courier-task-actions">
-        {action && <button className="courier-primary" disabled={busy === item.assignment_id} onClick={() => runAction(item, action[0])}>
+        {['accepted','picking_up'].includes(item.assignment_status) && <div className="courier-pickup-progress"><QrCode size={16}/><span>{Number(item.verified_pickups || 0)}/{Number(item.total_pickups || 0)} colis vérifié(s)</span></div>}
+        {action && <button className="courier-primary" disabled={busy === item.assignment_id || (action[0] === 'picked_up' && Number(item.verified_pickups || 0) < Number(item.total_pickups || 0))} onClick={() => runAction(item, action[0])}>
           {action[0] === 'delivered' ? <CheckCircle2 size={18}/> : action[0] === 'out_for_delivery' ? <Truck size={18}/> : action[0] === 'start_pickup' ? <Bike size={18}/> : <Clock3 size={18}/>}
-          {busy === item.assignment_id ? 'Mise à jour…' : action[1]}
+          {busy === item.assignment_id ? 'Mise à jour…' : action[0] === 'picked_up' && Number(item.verified_pickups || 0) < Number(item.total_pickups || 0) ? 'Vérifiez tous les QR' : action[1]}
         </button>}
         {item.assignment_status !== 'delivered' && item.assignment_status !== 'problem' && <button className="courier-problem" type="button" onClick={() => openIncident(item)}><AlertTriangle size={17}/>Signaler</button>}
       </footer>
@@ -554,6 +759,26 @@ export default function CourierPage() {
       <button className={tab === 'problems' ? 'active' : ''} onClick={() => setTab('problems')}><CircleAlert size={21}/><span>Problèmes</span>{problemDeliveries.length > 0 && <b>{problemDeliveries.length}</b>}</button>
       <button className={tab === 'history' ? 'active' : ''} onClick={() => setTab('history')}><History size={21}/><span>Historique</span></button>
     </nav>
+
+    {scanner && <div className="courier-modal-backdrop qr" onMouseDown={() => setScanner(null)}>
+      <div className="courier-qr-modal" onMouseDown={event => event.stopPropagation()}>
+        <header>
+          <div><span>Ramassage sécurisé</span><h2>{scanner.pickup.store_name}</h2><p>{scanner.order_number} · vérifiez le colis avant de repartir.</p></div>
+          <button type="button" onClick={() => setScanner(null)} aria-label="Fermer"><X size={20}/></button>
+        </header>
+        <div className="courier-qr-reader-shell">
+          <Camera size={22}/>
+          <video ref={scannerVideoRef} playsInline muted></video>
+          <div className="courier-qr-target"></div>
+        </div>
+        <div className="courier-manual-code">
+          <span>Si le scanner intégré ne s’ouvre pas, utilisez directement la caméra du téléphone sur le QR vendeur. Le lien reviendra ici automatiquement.</span>
+          <label>Code manuel du vendeur<input autoCapitalize="characters" value={manualCode} onChange={e=>setManualCode(e.target.value.toUpperCase())} placeholder="Ex. A1B2C3D4"/></label>
+          <button type="button" disabled={busy === 'scan' || !manualCode.trim()} onClick={() => verifyPickupCode(manualCode)}><QrCode size={17}/>{busy === 'scan' ? 'Vérification…' : 'Vérifier le code'}</button>
+        </div>
+        {scanError && <div className={`courier-scan-message ${scanError.includes('vérifié') ? 'good' : ''}`}>{scanError}</div>}
+      </div>
+    </div>}
 
     {incident && <div className="courier-modal-backdrop" onMouseDown={() => setIncident(null)}>
       <form className="courier-modal" onSubmit={submitIncident} onMouseDown={event => event.stopPropagation()}>
