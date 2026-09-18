@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  AlertTriangle, Bike, CheckCircle2, ChevronRight, CircleAlert, CircleDollarSign,
+  AlertTriangle, BellRing, Bike, CheckCircle2, ChevronRight, CircleAlert, CircleDollarSign,
   ClipboardCopy, Clock3, History, Home, ListTodo, LogOut, MapPin, MapPinned,
   Camera, MessageCircle, Navigation, PackageCheck, Phone, Plus, Power, QrCode,
   RefreshCw, Route, ShieldCheck, Store, Truck, WalletCards, X,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
+import { ensureCourierPushSubscription } from '../lib/push'
 import { cdf, dateTime, usd } from '../lib/format'
 import { adminUserError, logAdminError } from '../lib/userErrors'
 import { Badge, ConfirmModal, Empty, Loader, SectionHead, Table } from '../components/UI'
@@ -246,7 +247,7 @@ export function CouriersPage() {
 }
 
 export default function CourierPage() {
-  const { staff, signOut } = useAuth()
+  const { user, staff, signOut } = useAuth()
   const [deliveries, setDeliveries] = useState([])
   const [profile, setProfile] = useState(null)
   const [tab, setTab] = useState('home')
@@ -259,6 +260,12 @@ export default function CourierPage() {
   const [manualCode, setManualCode] = useState('')
   const [scanError, setScanError] = useState('')
   const [deepLinkHandled, setDeepLinkHandled] = useState(false)
+  const [pushStatus, setPushStatus] = useState(() => {
+    if (typeof window === 'undefined' || !('Notification' in window)) return 'unsupported'
+    return window.Notification.permission
+  })
+  const [pushBusy, setPushBusy] = useState(false)
+  const [pushMessage, setPushMessage] = useState('')
   const scannerLock = useRef(false)
   const scannerVideoRef = useRef(null)
 
@@ -284,6 +291,25 @@ export default function CourierPage() {
     const timer = window.setInterval(() => load({ silent: true }), 25000)
     return () => window.clearInterval(timer)
   }, [load])
+
+  useEffect(() => {
+    if (!user?.id || typeof window === 'undefined' || !('Notification' in window)) return undefined
+
+    const permission = window.Notification.permission
+    setPushStatus(permission)
+
+    if (permission === 'granted') {
+      ensureCourierPushSubscription({ supabase, userId: user.id })
+        .then(enabled => {
+          if (enabled) setPushStatus('granted')
+        })
+        .catch(error => {
+          logAdminError('courier-push-refresh', error)
+          setPushMessage('Les notifications sont autorisées mais l’abonnement doit être réactivé.')
+        })
+    }
+    return undefined
+  }, [user?.id])
 
   useEffect(() => {
     if (!scanner) return undefined
@@ -440,6 +466,33 @@ export default function CourierPage() {
     if (tab === 'problems') return problemDeliveries
     return activeDeliveries
   }, [tab, activeDeliveries, deliveredDeliveries, problemDeliveries])
+
+  async function enablePushNotifications() {
+    if (!user?.id || pushBusy) return
+    setPushBusy(true)
+    setPushMessage('')
+    try {
+      const enabled = await ensureCourierPushSubscription({ supabase, userId: user.id })
+      const permission = typeof window !== 'undefined' && 'Notification' in window
+        ? window.Notification.permission
+        : 'unsupported'
+      setPushStatus(permission)
+      if (enabled) {
+        setPushMessage('Notifications activées. Vous serez alerté dès qu’une nouvelle course vous est assignée.')
+      } else if (permission === 'denied') {
+        setPushMessage('Les notifications sont bloquées. Autorisez-les dans les paramètres du site puis réessayez.')
+      } else if (permission === 'unsupported') {
+        setPushMessage('Ce navigateur ne prend pas en charge les notifications push.')
+      } else {
+        setPushMessage('Autorisation non accordée. Appuyez à nouveau sur Activer si vous changez d’avis.')
+      }
+    } catch (pushError) {
+      logAdminError('courier-push-enable', pushError)
+      setPushMessage('Impossible d’activer les notifications pour le moment. Réessayez.')
+    } finally {
+      setPushBusy(false)
+    }
+  }
 
   async function toggleAvailability() {
     if (busy) return
@@ -697,6 +750,22 @@ export default function CourierPage() {
         </span>
         <span className="availability-toggle"><i></i></span>
       </button>
+
+      <section className={`courier-push-card ${pushStatus === 'granted' ? 'enabled' : ''}`}>
+        <span className="courier-push-icon"><BellRing size={20}/></span>
+        <div className="courier-push-copy">
+          <strong>{pushStatus === 'granted' ? 'Notifications de course activées' : 'Activer les notifications de course'}</strong>
+          <small>{pushStatus === 'granted'
+            ? 'One Market vous prévient même quand l’espace livreur n’est pas au premier plan.'
+            : pushStatus === 'denied'
+              ? 'Les notifications sont bloquées dans le navigateur. Modifiez l’autorisation du site pour les réactiver.'
+              : pushStatus === 'unsupported'
+                ? 'Ce navigateur ne prend pas en charge les notifications push.'
+                : 'Recevez immédiatement les nouvelles missions et changements importants.'}</small>
+          {pushMessage && <em>{pushMessage}</em>}
+        </div>
+        {pushStatus !== 'granted' && pushStatus !== 'unsupported' && <button type="button" disabled={pushBusy} onClick={enablePushNotifications}>{pushBusy ? 'Activation…' : pushStatus === 'denied' ? 'Réessayer' : 'Activer'}</button>}
+      </section>
 
       {error && <div className="courier-alert"><AlertTriangle size={18}/><span>{error}</span></div>}
 

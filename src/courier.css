@@ -45,3 +45,20 @@
   .courier-pickup-heading{grid-template-columns:auto 1fr}
   .courier-pickup-heading .courier-mini-actions{grid-column:2;justify-self:start;margin-top:4px}
 }
+
+/* Courier push notifications */
+.courier-push-card{margin-top:10px;padding:13px 14px;border:1px solid #dfe6ef;border-radius:18px;background:#fff;display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:11px;box-shadow:0 8px 24px rgba(27,48,85,.055)}
+.courier-push-card.enabled{border-color:#bee2ca;background:linear-gradient(135deg,#f8fffb,#effaf3)}
+.courier-push-icon{width:40px;height:40px;border-radius:13px;background:#edf3ff;color:#1769ff;display:grid;place-items:center}
+.courier-push-card.enabled .courier-push-icon{background:#dff4e7;color:#16834a}
+.courier-push-copy{min-width:0}
+.courier-push-copy strong,.courier-push-copy small,.courier-push-copy em{display:block}
+.courier-push-copy strong{font-size:.78rem;color:#14233a}
+.courier-push-copy small{font-size:.65rem;color:#77879b;line-height:1.4;margin-top:2px}
+.courier-push-copy em{font-style:normal;font-size:.63rem;line-height:1.35;margin-top:5px;color:#1769ff;font-weight:750}
+.courier-push-card>button{min-height:38px;border:0;border-radius:11px;padding:0 12px;background:#1769ff;color:#fff;font-size:.66rem;font-weight:900;white-space:nowrap}
+.courier-push-card>button:disabled{opacity:.55}
+@media(max-width:520px){
+  .courier-push-card{grid-template-columns:auto 1fr}
+  .courier-push-card>button{grid-column:1/-1;width:100%}
+}

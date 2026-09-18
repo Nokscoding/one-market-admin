@@ -2,19 +2,23 @@ const ICON = 'https://res.cloudinary.com/nks-services/image/upload/v1788106209/o
 
 self.addEventListener('push', event => {
   let data = {}
-  try { data = event.data ? event.data.json() : {} } catch { data = { body: event.data?.text?.() || '' } }
-  event.waitUntil(self.registration.showNotification(data.title || 'One Market ERP', {
-    body: data.body || 'Vous avez une nouvelle notification.',
+  try { data = event.data ? event.data.json() : {} }
+  catch { data = { body: event.data?.text?.() || '' } }
+
+  const title = data.title || 'One Market Livreur'
+  event.waitUntil(self.registration.showNotification(title, {
+    body: data.body || 'Vous avez une nouvelle course One Market.',
     icon: ICON,
     badge: ICON,
     tag: data.tag || undefined,
-    data: { link: data.link || '/' },
+    renotify: true,
+    data: { link: data.link || '/courier' },
   }))
 })
 
 self.addEventListener('notificationclick', event => {
   event.notification.close()
-  const link = event.notification?.data?.link || '/'
+  const link = event.notification?.data?.link || '/courier'
   event.waitUntil(clients.matchAll({ type: 'window', includeUncontrolled: true }).then(windows => {
     for (const client of windows) {
       if ('focus' in client) {
