@@ -1,3 +1,4 @@
+import { adminUserError } from '../lib/userErrors'
 import { useEffect, useMemo, useState } from 'react'
 import { Navigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
@@ -22,7 +23,7 @@ export function StaffPage() {
   }, [])
   if (staff?.staff_role !== 'SUPER_ADMIN') return <Navigate to="/403" replace/>
   function openEdit(row){ setActionError(''); setEditRow(row); setForm({role:row.staff_role,status:row.status}) }
-  async function save(){ setActionError(''); const {error}=await supabase.rpc('erp_manage_staff',{p_user_id:editRow.user_id,p_staff_role:form.role,p_status:form.status}); if(error)return setActionError(error.message==='CLIENT_CANNOT_BE_SUPER_ADMIN'?'Un compte client ne peut pas devenir DG / Super Admin.':error.message); setEditRow(null); reload() }
+  async function save(){ setActionError(''); const {error}=await supabase.rpc('erp_manage_staff',{p_user_id:editRow.user_id,p_staff_role:form.role,p_status:form.status}); if(error)return setActionError(error.message==='CLIENT_CANNOT_BE_SUPER_ADMIN'?'Un compte client ne peut pas devenir DG / Super Admin.':adminUserError(error)); setEditRow(null); reload() }
   return <>
     <SectionHead eyebrow="Système" title="Employés ERP" desc="Rôles, accès internes et dernière activité du personnel One Market."/>
     {(error||actionError)&&<div className="alert bad">{error||actionError}</div>}
@@ -61,9 +62,9 @@ export function SettingsPage() {
   const {data,loading,error,reload}=useLoad(async()=>{const [{data:methods,error:methodError},{data:settings,error:settingError}]=await Promise.all([supabase.from('delivery_methods').select('*').order('sort_order'),supabase.from('marketplace_settings').select('*').in('key',['payments','commerce'])]);if(methodError)throw methodError;if(settingError)throw settingError;const map=Object.fromEntries((settings||[]).map(row=>[row.key,row.value||{}]));return{methods:methods||[],payments:map.payments||{},commerce:map.commerce||{}}},[])
   useEffect(()=>{if(!data)return;setPayments({cod_enabled:data.payments.cod_enabled!==false,mobile_money_enabled:data.payments.mobile_money_enabled===true,mobile_money_whatsapp:data.payments.mobile_money_whatsapp||'',mobile_money_display:data.payments.mobile_money_display||''});setCommerce({default_commission_percent:Number(data.commerce.default_commission_percent||0),store_boost_enabled:data.commerce.store_boost_enabled===true})},[data])
   if(staff?.staff_role!=='SUPER_ADMIN')return <Navigate to="/403" replace/>
-  async function saveSetting(key,value){setSaving(key);setActionError('');setNotice('');const {error}=await supabase.rpc('erp_update_marketplace_setting',{p_key:key,p_value:value});if(error)setActionError(error.message);else{setNotice('Paramètres enregistrés.');reload()}setSaving('')}
+  async function saveSetting(key,value){setSaving(key);setActionError('');setNotice('');const {error}=await supabase.rpc('erp_update_marketplace_setting',{p_key:key,p_value:value});if(error)setActionError(adminUserError(error));else{setNotice('Paramètres enregistrés.');reload()}setSaving('')}
   function openDelivery(method){setActionError('');setDeliveryModal(method);setDeliveryForm({fee:Number(method.fee_cdf||0),active:method.is_active!==false})}
-  async function saveDelivery(){const {error}=await supabase.rpc('erp_update_delivery_method',{p_code:deliveryModal.code,p_fee_cdf:Math.round(Number(deliveryForm.fee)||0),p_active:deliveryForm.active});if(error)return setActionError(error.message);setDeliveryModal(null);reload()}
+  async function saveDelivery(){const {error}=await supabase.rpc('erp_update_delivery_method',{p_code:deliveryModal.code,p_fee_cdf:Math.round(Number(deliveryForm.fee)||0),p_active:deliveryForm.active});if(error)return setActionError(adminUserError(error));setDeliveryModal(null);reload()}
   return <>
     <SectionHead eyebrow="Système" title="Paramètres" desc="Réglages marketplace, finances, paiements et livraison."/>
     {(error||actionError)&&<div className="alert bad">{error||actionError}</div>}{notice&&<div className="alert good">{notice}</div>}
