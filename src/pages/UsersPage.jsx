@@ -37,12 +37,12 @@ export function UsersPage() {
 }
 
 function CreateUserModal({ open, onClose, onDone }) {
-  const [form, setForm] = useState({ full_name: '', email: '', password: '', marketplace_role: 'client', staff_role: '' })
+  const [form, setForm] = useState({ full_name: '', email: '', password: '', marketplace_role: 'client', staff_role: '', phone: '', vehicle_type: 'moto', vehicle_label: '' })
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
   if (!open) return null
 
-  const availableStaffRoles = form.marketplace_role === 'client' ? STAFF_ROLES.filter(role => role !== 'SUPER_ADMIN') : STAFF_ROLES
+  const availableStaffRoles = form.marketplace_role === 'courier' ? ['COURIER'] : form.marketplace_role === 'client' ? STAFF_ROLES.filter(role => !['SUPER_ADMIN','COURIER'].includes(role)) : STAFF_ROLES.filter(role => role !== 'COURIER')
 
   async function submit(event) {
     event.preventDefault()
@@ -50,18 +50,46 @@ function CreateUserModal({ open, onClose, onDone }) {
       setMessage('Un compte client ne peut pas être DG / Super Admin.')
       return
     }
+    if (form.marketplace_role === 'courier' && form.staff_role !== 'COURIER') {
+      setMessage('Un livreur One Market doit avoir l’accès ERP « Livreur ».')
+      return
+    }
     setBusy(true)
     setMessage('')
     const { data, error } = await supabase.functions.invoke('erp-create-user', { body: { ...form, staff_role: form.staff_role || null } })
     if (error || data?.error) {
-      const code = data?.error || error?.message || ''
-      setMessage(code === 'CLIENT_CANNOT_BE_SUPER_ADMIN' ? 'Un compte client ne peut pas être DG / Super Admin.' : code || 'Impossible de créer le compte.')
+      let code = data?.error || ''
+      if (!code && error?.context) {
+        try {
+          const response = typeof error.context.clone === 'function' ? error.context.clone() : error.context
+          const payload = await response.json()
+          code = payload?.error || ''
+        } catch (_) {}
+      }
+      if (!code) code = error?.message || ''
+      const messages = {
+        CLIENT_CANNOT_BE_SUPER_ADMIN: 'Un compte client ne peut pas être DG / Super Admin.',
+        INVALID_STAFF_ROLE: 'Le rôle ERP choisi n’est pas autorisé.',
+        COURIER_REQUIRES_ERP_ROLE: 'Un livreur One Market doit avoir l’accès ERP « Livreur ».',
+        COURIER_ROLE_MISMATCH: 'Le rôle marketplace et l’accès ERP du livreur doivent correspondre.',
+        EMAIL_ALREADY_EXISTS: 'Cette adresse e-mail possède déjà un compte One Market.',
+        PASSWORD_TOO_SHORT: 'Le mot de passe doit contenir au moins 8 caractères.',
+        USER_PROVISION_FAILED: 'Le compte a été annulé car la configuration interne du livreur a échoué.',
+        AUTH_CREATE_FAILED: 'Impossible de créer le compte de connexion.',
+      }
+      setMessage(messages[code] || (code === 'Edge Function returned a non-2xx status code' ? 'La création a échoué côté serveur. Réessayez après actualisation.' : code || 'Impossible de créer le compte.'))
     } else onDone()
     setBusy(false)
   }
 
   function setMarketplaceRole(value) {
-    setForm(current => ({ ...current, marketplace_role: value, staff_role: value === 'client' && current.staff_role === 'SUPER_ADMIN' ? '' : current.staff_role }))
+    setForm(current => {
+      let staffRole = current.staff_role
+      if (value === 'courier') staffRole = 'COURIER'
+      else if (staffRole === 'COURIER') staffRole = ''
+      if (value === 'client' && staffRole === 'SUPER_ADMIN') staffRole = ''
+      return { ...current, marketplace_role: value, staff_role: staffRole }
+    })
   }
 
   return <div className="modal-backdrop"><form className="modal" onSubmit={submit}>
@@ -71,7 +99,12 @@ function CreateUserModal({ open, onClose, onDone }) {
       <label>Email<input required type="email" value={form.email} onChange={event => setForm({ ...form, email: event.target.value })}/></label>
       <label>Mot de passe initial<input required type="password" minLength={8} value={form.password} onChange={event => setForm({ ...form, password: event.target.value })}/></label>
       <label>Rôle marketplace<select value={form.marketplace_role} onChange={event => setMarketplaceRole(event.target.value)}>{MARKETPLACE_ROLES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
-      <label className="wide">Accès ERP<select value={form.staff_role} onChange={event => setForm({ ...form, staff_role: event.target.value })}><option value="">Aucun accès ERP</option>{availableStaffRoles.map(role => <option key={role} value={role}>{ROLE_LABELS[role]}</option>)}</select></label>
+      <label className="wide">Accès ERP<select value={form.staff_role} disabled={form.marketplace_role === 'courier'} onChange={event => setForm({ ...form, staff_role: event.target.value })}>{form.marketplace_role !== 'courier' && <option value="">Aucun accès ERP</option>}{availableStaffRoles.map(role => <option key={role} value={role}>{ROLE_LABELS[role]}</option>)}</select></label>
+      {form.marketplace_role === 'courier' && <>
+        <label>Téléphone<input required value={form.phone} onChange={event => setForm({ ...form, phone: event.target.value })} placeholder="Ex. 099…"/></label>
+        <label>Véhicule<select value={form.vehicle_type} onChange={event => setForm({ ...form, vehicle_type: event.target.value })}><option value="moto">Moto</option><option value="voiture">Voiture</option><option value="velo">Vélo</option><option value="pied">À pied</option><option value="autre">Autre</option></select></label>
+        <label className="wide">Référence véhicule<input value={form.vehicle_label} onChange={event => setForm({ ...form, vehicle_label: event.target.value })} placeholder="Ex. Moto noire, plaque…"/></label>
+      </>}
     </div>
     {message && <div className="alert bad">{message}</div>}
     <div className="modal-actions"><button type="button" className="btn ghost" onClick={onClose}>Annuler</button><button className="btn primary" disabled={busy}>{busy ? 'Création…' : 'Créer le compte'}</button></div>
