@@ -18,17 +18,19 @@ export function FinancePage() {
   const [actionError, setActionError] = useState('')
   const [form, setForm] = useState({ status: '', reference: '', note: '', method: 'mobile_money', from: '', to: '' })
   const { data, loading, error, reload } = useLoad(async () => {
-    const [{ data: dashboard, error: dashError }, { data: orders, error: orderError }, { data: payouts, error: payoutError }, { data: stores, error: storeError }] = await Promise.all([
+    const [{ data: dashboard, error: dashError }, { data: orders, error: orderError }, { data: payouts, error: payoutError }, { data: stores, error: storeError }, { data: ads, error: adsError }] = await Promise.all([
       supabase.rpc('erp_finance_dashboard', { p_from: null, p_to: null }),
       supabase.from('orders').select('id,order_number,status,payment_method,payment_status,currency,items_total,delivery_fee_cdf,created_at').order('created_at', { ascending: false }).limit(200),
       supabase.from('seller_payouts').select('*').order('created_at', { ascending: false }).limit(200),
       supabase.rpc('erp_stores_overview', { p_search: null, p_status: null, p_limit: 250, p_offset: 0 }),
+      supabase.rpc('erp_ads_finance_summary'),
     ])
     if (dashError) throw dashError
     if (orderError) throw orderError
     if (payoutError) throw payoutError
     if (storeError) throw storeError
-    return { dashboard: dashboard || {}, orders: orders || [], payouts: payouts || [], stores: stores || [] }
+    if (adsError) throw adsError
+    return { dashboard: dashboard || {}, orders: orders || [], payouts: payouts || [], stores: stores || [], ads: ads || {} }
   }, [])
   if (loading) return <Loader/>
   if (error || !data) return <div className="alert bad" role="alert">{error || 'Impossible de charger les finances.'}<button className="btn ghost" onClick={reload}>Réessayer</button></div>
@@ -75,7 +77,7 @@ export function FinancePage() {
     <div className="tabs">{[['overview','Vue d’ensemble'],['orders','Commandes'],['commissions','Commissions'],['payouts','Vendeurs à payer'],['transactions','Transactions']].map(([v,l]) => <button className={tab === v ? 'active' : ''} onClick={() => setTab(v)} key={v}>{l}</button>)}</div>
     {(error || actionError) && <div className="alert bad">{error || actionError}</div>}
 
-    {tab === 'overview' && <><div className="metrics-grid"><Metric icon={CircleDollarSign} label="GMV 30 jours" value={usd(m.gmv_usd)}/><Metric icon={Banknote} label="Commissions" value={usd(m.commissions_generated_usd)} sub={`encaissées ${usd(m.commissions_collected_usd)}`}/><Metric icon={WalletCards} label="Dû aux vendeurs" value={usd(m.seller_due_usd)}/><Metric icon={Zap} label="Abonnements" value={usd(m.subscription_revenue_usd)}/></div><div className="dashboard-columns"><section className="panel"><h3>Encaissements</h3><div className="finance-status-grid"><div><span>COD à encaisser</span><strong>{m.cod_pending || 0}</strong></div><div><span>Mobile Money en attente</span><strong>{m.mobile_pending || 0}</strong></div><div><span>Mobile Money payés</span><strong>{m.mobile_paid || 0}</strong></div><div><span>Problèmes</span><strong>{m.payment_problems || 0}</strong></div></div></section><section className="panel"><h3>Règlements vendeurs</h3><div className="finance-status-grid"><div><span>En attente</span><strong>{m.payouts_pending || 0}</strong></div><div><span>Payés</span><strong>{usd(m.seller_paid_usd)}</strong></div><div><span>À payer</span><strong>{usd(m.seller_due_usd)}</strong></div><div><span>Livraison</span><strong>{cdf(m.delivery_revenue_cdf)}</strong></div></div></section></div></>}
+    {tab === 'overview' && <><div className="metrics-grid"><Metric icon={CircleDollarSign} label="GMV 30 jours" value={usd(m.gmv_usd)}/><Metric icon={Banknote} label="Commissions" value={usd(m.commissions_generated_usd)} sub={`encaissées ${usd(m.commissions_collected_usd)}`}/><Metric icon={WalletCards} label="Dû aux vendeurs" value={usd(m.seller_due_usd)}/><Metric icon={Zap} label="Abonnements" value={usd(m.subscription_revenue_usd)}/><Metric icon={CircleDollarSign} label="One Market Ads" value={usd(data.ads?.revenue_paid_usd)} sub={`${data.ads?.active||0} active · ${data.ads?.pending||0} en attente`}/></div><div className="dashboard-columns"><section className="panel"><h3>Encaissements</h3><div className="finance-status-grid"><div><span>COD à encaisser</span><strong>{m.cod_pending || 0}</strong></div><div><span>Mobile Money en attente</span><strong>{m.mobile_pending || 0}</strong></div><div><span>Mobile Money payés</span><strong>{m.mobile_paid || 0}</strong></div><div><span>Problèmes</span><strong>{m.payment_problems || 0}</strong></div></div></section><section className="panel"><h3>Règlements vendeurs</h3><div className="finance-status-grid"><div><span>En attente</span><strong>{m.payouts_pending || 0}</strong></div><div><span>Payés</span><strong>{usd(m.seller_paid_usd)}</strong></div><div><span>À payer</span><strong>{usd(m.seller_due_usd)}</strong></div><div><span>Livraison</span><strong>{cdf(m.delivery_revenue_cdf)}</strong></div></div></section></div></>}
 
     {tab === 'orders' && <Table headers={['Commande','Date','Méthode','Produits','Livraison','Paiement','']} rows={data.orders.map(order => [order.order_number, dateTime(order.created_at), order.payment_method === 'mobile_money' ? 'Mobile Money' : 'À la livraison', money(order.items_total, order.currency), cdf(order.delivery_fee_cdf), <Badge value={order.payment_status}/>, canManage ? <button className="row-action" onClick={() => openPayment(order)}>Gérer</button> : '—'])}/>} 
 
