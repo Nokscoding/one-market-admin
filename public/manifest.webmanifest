@@ -1,0 +1,18 @@
+{
+  "name": "One Market ERP",
+  "short_name": "OM ERP",
+  "description": "Administration et opérations One Market",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#07152f",
+  "theme_color": "#07152f",
+  "icons": [
+    {
+      "src": "https://res.cloudinary.com/nks-services/image/upload/v1788106209/one-market-logo.webp",
+      "sizes": "any",
+      "type": "image/webp",
+      "purpose": "any maskable"
+    }
+  ]
+}
