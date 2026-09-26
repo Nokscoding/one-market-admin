@@ -6,6 +6,7 @@ import { supabase } from '../lib/supabase'
 import { dateTime, usd } from '../lib/format'
 import { useLoad } from '../lib/useLoad'
 import { Badge, ConfirmModal, Loader, Metric, SearchBar, SectionHead, Table } from '../components/UI'
+import '../moderator.css'
 
 export function StoresPage() {
   const { staff, can } = useAuth()
