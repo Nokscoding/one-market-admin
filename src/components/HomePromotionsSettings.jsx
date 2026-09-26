@@ -4,7 +4,7 @@ import { Navigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 import { adminUserError, logAdminError } from '../lib/userErrors'
-import { EMPTY_PROMOTION, applyPromotion, campaignState, normalizePromotions, promotionCrop, promotionError, toLocalInput, validMediaUrl } from '../lib/promotions'
+import { EMPTY_PROMOTION, applyPromotion, campaignState, normalizePromotions, promotionCrop, promotionError, promotionMedia, toLocalInput, validMediaUrl } from '../lib/promotions'
 import { SectionHead } from './UI'
 import './home-promotions.css'
 
@@ -29,7 +29,8 @@ function PromoCropStage({ item, mode, height, fit = 'cover', onChange, readOnly 
   const crop = promotionCrop(item, mode)
   const drag = useRef(null)
   const keys = cropKeys(mode)
-  const valid = item && validMediaUrl(item.url)
+  const media = promotionMedia(item, mode)
+  const valid = item && validMediaUrl(media.url)
 
   function update(patch) {
     if (readOnly || typeof onChange !== 'function') return
@@ -85,10 +86,10 @@ function PromoCropStage({ item, mode, height, fit = 'cover', onChange, readOnly 
       aria-label={readOnly ? undefined : `Recadrage ${mode === 'mobile' ? 'mobile' : 'desktop'} du média`}
     >
       {valid
-        ? item.media_type === 'video'
-          ? <video src={item.url} muted autoPlay loop playsInline preload="metadata"/>
-          : <img src={item.url} alt={item.alt || item.title || 'Aperçu de la publicité'} draggable="false"/>
-        : <span>Ajoutez une image ou une vidéo pour commencer le cadrage.</span>}
+        ? media.type === 'video'
+          ? <video src={media.url} muted autoPlay loop playsInline preload="metadata"/>
+          : <img src={media.url} alt={item.alt || item.title || 'Aperçu de la publicité'} draggable="false"/>
+        : <span>Ajoutez une version {mode === 'mobile' ? 'mobile' : 'PC'} pour commencer le cadrage.</span>}
       {valid && !readOnly && <div className="promo-crop-frame" aria-hidden="true"><span><Move size={15}/> Glissez le média pour cadrer</span></div>}
     </div>
     {!readOnly && <div className="promo-crop-toolbar">
@@ -111,7 +112,7 @@ export function HomePromotionsSettings() {
   const [editorOpen, setEditorOpen] = useState(false)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [uploading, setUploading] = useState(false)
+  const [uploadingMode, setUploadingMode] = useState('')
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [preview, setPreview] = useState('desktop')
@@ -119,7 +120,7 @@ export function HomePromotionsSettings() {
   const [deleteId, setDeleteId] = useState(null)
   const [retry, setRetry] = useState(0)
   const editor = useRef(null)
-  const busy = saving || uploading
+  const busy = saving || Boolean(uploadingMode)
 
   useEffect(() => {
     let active = true
@@ -174,31 +175,42 @@ export function HomePromotionsSettings() {
     }
   }
 
-  async function upload(event) {
+  async function upload(event, mode) {
     const file = event.target.files?.[0]
     event.target.value = ''
     if (!file || busy) return
     if (!file.type.startsWith('image/') && !file.type.startsWith('video/')) return setError('Choisissez une image ou une vidéo.')
     if (file.size > 45 * 1024 * 1024) return setError('Ce fichier dépasse la limite de 45 Mo.')
-    setUploading(true); setError('')
+    const target = mode === 'mobile' ? 'mobile' : 'desktop'
+    setUploadingMode(target); setError('')
     try {
       const body = new FormData()
       body.append('file', file); body.append('upload_preset', preset)
-      body.append('asset_folder', 'one-market/promotions'); body.append('tags', 'one-market,promotion')
+      body.append('asset_folder', 'one-market/promotions'); body.append('tags', 'one-market,promotion,' + target)
       const response = await fetch('https://api.cloudinary.com/v1_1/' + cloud + '/auto/upload', { method: 'POST', body })
       const result = await response.json()
       if (!response.ok || !validMediaUrl(result.secure_url)) throw new Error('MEDIA_UPLOAD_FAILED')
-      setDraft(current => ({
-        ...current,
-        url: result.secure_url,
-        media_type: result.resource_type === 'video' ? 'video' : 'image',
-        crop_desktop_x: 50, crop_desktop_y: 50, crop_desktop_zoom: 100,
-        crop_mobile_x: 50, crop_mobile_y: 50, crop_mobile_zoom: 100,
-      }))
+      const type = result.resource_type === 'video' ? 'video' : 'image'
+      setDraft(current => target === 'mobile'
+        ? {
+            ...current,
+            mobile_url: result.secure_url,
+            mobile_media_type: type,
+            crop_mobile_x: 50, crop_mobile_y: 50, crop_mobile_zoom: 100,
+          }
+        : {
+            ...current,
+            url: result.secure_url,
+            media_type: type,
+            desktop_url: result.secure_url,
+            desktop_media_type: type,
+            crop_desktop_x: 50, crop_desktop_y: 50, crop_desktop_zoom: 100,
+          })
+      setPreview(target)
     } catch (uploadError) {
-      logAdminError('promotions.upload', uploadError)
-      setError('Le média n’a pas pu être importé. Vérifiez le fichier et votre connexion, puis réessayez.')
-    } finally { setUploading(false) }
+      logAdminError('promotions.upload.' + target, uploadError)
+      setError('La version ' + (target === 'mobile' ? 'mobile' : 'PC') + ' n’a pas pu être importée. Vérifiez le fichier et votre connexion, puis réessayez.')
+    } finally { setUploadingMode('') }
   }
 
   function move(id, delta) {
@@ -234,17 +246,32 @@ export function HomePromotionsSettings() {
         <div className="promo-editor-workspace">
           <fieldset disabled={busy}>
             <div className="promo-form-grid">
-              <label>Titre<input value={draft.title} maxLength={160} onChange={e => setDraft({ ...draft, title: e.target.value })}/></label>
-              <label>Type de média<select value={draft.media_type} onChange={e => setDraft({ ...draft, media_type: e.target.value })}><option value="image">Image</option><option value="video">Vidéo</option></select></label>
-              <label className="wide">URL du média<input type="url" required value={draft.url} onChange={e => setDraft({ ...draft, url: e.target.value })} placeholder="https://…"/></label>
-              <label className="wide promo-upload-box"><Upload size={20}/><span>{uploading ? 'Import en cours…' : 'Importer ou remplacer le média'}<small>Image ou vidéo · 45 Mo maximum</small></span><input aria-label="Importer ou remplacer le média" type="file" accept="image/*,video/*" onChange={upload}/></label>
+              <label className="wide">Titre<input value={draft.title} maxLength={160} onChange={e => setDraft({ ...draft, title: e.target.value })}/></label>
+
+              <div className="wide promo-device-media-grid">
+                <section className="promo-device-media-card">
+                  <div className="promo-device-media-title"><Monitor size={18}/><div><strong>Version PC</strong><small>Obligatoire · bannière large</small></div></div>
+                  <label>Type<select value={draft.desktop_media_type || draft.media_type || 'image'} onChange={e => setDraft({ ...draft, desktop_media_type: e.target.value, media_type: e.target.value })}><option value="image">Image</option><option value="video">Vidéo</option></select></label>
+                  <label>URL PC<input type="url" required value={draft.desktop_url || draft.url || ''} onChange={e => setDraft({ ...draft, desktop_url: e.target.value, url: e.target.value })} placeholder="https://…"/></label>
+                  <label className="promo-upload-box"><Upload size={20}/><span>{uploadingMode === 'desktop' ? 'Import PC en cours…' : 'Téléverser la version PC'}<small>Image ou vidéo · 45 Mo maximum</small></span><input aria-label="Téléverser la version PC" type="file" accept="image/*,video/*" onChange={event => upload(event, 'desktop')}/></label>
+                </section>
+
+                <section className="promo-device-media-card">
+                  <div className="promo-device-media-title"><Smartphone size={18}/><div><strong>Version mobile</strong><small>Recommandée · format téléphone</small></div></div>
+                  <label>Type<select value={draft.mobile_media_type || 'image'} onChange={e => setDraft({ ...draft, mobile_media_type: e.target.value })}><option value="image">Image</option><option value="video">Vidéo</option></select></label>
+                  <label>URL mobile<input type="url" value={draft.mobile_url || ''} onChange={e => setDraft({ ...draft, mobile_url: e.target.value })} placeholder="https://… (facultatif)"/></label>
+                  <label className="promo-upload-box"><Upload size={20}/><span>{uploadingMode === 'mobile' ? 'Import mobile en cours…' : 'Téléverser la version mobile'}<small>Si vide, la version PC sera utilisée</small></span><input aria-label="Téléverser la version mobile" type="file" accept="image/*,video/*" onChange={event => upload(event, 'mobile')}/></label>
+                  {draft.mobile_url && <button type="button" className="btn ghost promo-remove-mobile" onClick={() => setDraft(current => ({ ...current, mobile_url: '', mobile_media_type: current.desktop_media_type || current.media_type || 'image' }))}>Utiliser la version PC à la place</button>}
+                </section>
+              </div>
+
               <label>Lien au clic<input value={draft.link} onChange={e => setDraft({ ...draft, link: e.target.value })} placeholder="/catalog ou https://…"/></label>
               <label>Texte alternatif<input value={draft.alt} maxLength={300} onChange={e => setDraft({ ...draft, alt: e.target.value })} placeholder="Décrivez la publicité"/></label>
 
               <div className="wide promo-crop-editor">
                 <div>
                   <strong>Cadrage responsive</strong>
-                  <small>Le cadrage Desktop et le cadrage Mobile sont indépendants. Images et vidéos utilisent exactement le même système.</small>
+                  <small>Chaque format peut utiliser son propre fichier. Le cadrage Desktop et le cadrage Mobile restent indépendants.</small>
                 </div>
                 <div className="promo-crop-summary"><Monitor size={16}/><span>Desktop</span><strong>{Math.round(promotionCrop(draft, 'desktop').zoom)}%</strong></div>
                 <div className="promo-crop-summary"><Smartphone size={16}/><span>Mobile</span><strong>{Math.round(promotionCrop(draft, 'mobile').zoom)}%</strong></div>
@@ -276,7 +303,7 @@ export function HomePromotionsSettings() {
             />
 
             <p className="promo-editor-live-help">
-              Glissez directement le média dans le cadre. Cet aperçu reprend le ratio réel One Market ({preview === 'desktop' ? `1280 × ${config.desktop_height}px` : `390 × ${config.mobile_height}px`}). Ce que vous voyez ici correspond au cadrage publié. Le cadrage {preview === 'desktop' ? 'Desktop' : 'Mobile'} n’affecte pas l’autre format.
+              Glissez la version sélectionnée dans le cadre. Cet aperçu reprend le ratio réel One Market ({preview === 'desktop' ? `1280 × ${config.desktop_height}px` : `390 × ${config.mobile_height}px`}). Ce que vous voyez ici correspond au cadrage publié. Le cadrage {preview === 'desktop' ? 'Desktop' : 'Mobile'} n’affecte pas l’autre format.
             </p>
           </aside>
         </div>
@@ -288,7 +315,7 @@ export function HomePromotionsSettings() {
         <button className="promo-preview" aria-label={'Prévisualiser ' + (item.title || 'la publicité ' + (index + 1))} disabled={editorOpen} onClick={() => setPreviewId(item.id)}>
           {item.media_type === 'video' ? <video src={item.url} muted playsInline preload="metadata"/> : <img src={item.url} alt="" loading="lazy"/>}
         </button>
-        <div className="promo-row-body"><strong>{item.title || 'Publicité ' + (index + 1)}</strong><span>{campaignState(item)} · {item.media_type === 'video' ? 'Vidéo' : 'Image'} · 2 cadrages</span><small>{item.link || 'Sans lien'}</small></div>
+        <div className="promo-row-body"><strong>{item.title || 'Publicité ' + (index + 1)}</strong><span>{campaignState(item)} · {item.media_type === 'video' ? 'Vidéo' : 'Image'} · PC + Mobile</span><small>{item.link || 'Sans lien'}</small></div>
         <div className="promo-row-actions">
           <button className="btn ghost" disabled={busy || editorOpen} onClick={() => openEditor(item)}><Pencil size={16}/> Modifier</button>
           <button className="btn ghost" disabled={busy || editorOpen} onClick={() => persist({ ...config, items: config.items.map(row => row.id === item.id ? { ...row, active: !row.active } : row) }, 'Visibilité de la publicité enregistrée.')}>{item.active ? 'Désactiver' : 'Activer'}</button>
