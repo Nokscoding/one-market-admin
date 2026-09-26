@@ -4,6 +4,10 @@ export const EMPTY_PROMOTION = {
   title: '',
   media_type: 'image',
   url: '',
+  desktop_media_type: 'image',
+  desktop_url: '',
+  mobile_media_type: 'image',
+  mobile_url: '',
   link: '',
   alt: '',
   start_at: '',
@@ -35,6 +39,21 @@ export function promotionCrop(item, mode = 'desktop') {
   }
 }
 
+export function promotionMedia(item, mode = 'desktop') {
+  const desktopUrl = String(item?.desktop_url || item?.url || '').trim()
+  const mobileUrl = String(item?.mobile_url || '').trim()
+  const desktopType = item?.desktop_media_type === 'video' || item?.media_type === 'video' ? 'video' : 'image'
+  const mobileType = item?.mobile_media_type === 'video' ? 'video' : (item?.mobile_media_type === 'image' ? 'image' : desktopType)
+  if (mode === 'mobile') {
+    return {
+      url: mobileUrl || desktopUrl,
+      type: mobileUrl ? mobileType : desktopType,
+      fallback: !mobileUrl && Boolean(desktopUrl),
+    }
+  }
+  return { url: desktopUrl, type: desktopType, fallback: false }
+}
+
 export function normalizePromotions(value) {
   const raw = value && typeof value === 'object' ? value : {}
   return {
@@ -46,13 +65,20 @@ export function normalizePromotions(value) {
     items: (Array.isArray(raw.items) ? raw.items : []).map((item, index) => {
       const desktop = promotionCrop(item, 'desktop')
       const mobile = promotionCrop(item, 'mobile')
+      const desktopMedia = promotionMedia(item, 'desktop')
+      const mobileMedia = promotionMedia(item, 'mobile')
       return {
         ...EMPTY_PROMOTION,
         ...item,
         id: item.id || 'legacy-promotion-' + index,
         active: item.active !== false,
         target_blank: item.target_blank === true,
-        media_type: item.media_type === 'video' ? 'video' : 'image',
+        media_type: desktopMedia.type,
+        url: desktopMedia.url,
+        desktop_media_type: desktopMedia.type,
+        desktop_url: desktopMedia.url,
+        mobile_media_type: mobileMedia.type,
+        mobile_url: String(item?.mobile_url || '').trim(),
         crop_x: desktop.x,
         crop_y: desktop.y,
         crop_zoom: desktop.zoom,
@@ -80,7 +106,10 @@ export function validTarget(value) {
 }
 
 export function promotionError(draft) {
-  if (!validMediaUrl(draft.url)) return 'Ajoutez une URL HTTPS valide ou importez un fichier.'
+  const desktop = promotionMedia(draft, 'desktop')
+  const mobileUrl = String(draft?.mobile_url || '').trim()
+  if (!validMediaUrl(desktop.url)) return 'Ajoutez une version PC valide ou importez un fichier.'
+  if (mobileUrl && !validMediaUrl(mobileUrl)) return 'La version mobile doit utiliser une URL HTTPS valide.'
   if (!validTarget(draft.link)) return 'Utilisez un lien HTTPS ou un chemin du site commençant par /.'
   if (draft.start_at && !Number.isFinite(Date.parse(draft.start_at))) return 'La date de début est invalide.'
   if (draft.end_at && !Number.isFinite(Date.parse(draft.end_at))) return 'La date de fin est invalide.'
@@ -101,11 +130,19 @@ export function applyPromotion(config, draft, editingId) {
 
   const desktop = promotionCrop(draft, 'desktop')
   const mobile = promotionCrop(draft, 'mobile')
+  const desktopMedia = promotionMedia(draft, 'desktop')
+  const mobileUrl = String(draft.mobile_url || '').trim()
+  const mobileType = draft.mobile_media_type === 'video' ? 'video' : 'image'
   const item = {
     ...draft,
     id: editingId || crypto.randomUUID(),
     title: String(draft.title || '').trim(),
-    url: draft.url.trim(),
+    media_type: desktopMedia.type,
+    url: desktopMedia.url,
+    desktop_media_type: desktopMedia.type,
+    desktop_url: desktopMedia.url,
+    mobile_media_type: mobileUrl ? mobileType : desktopMedia.type,
+    mobile_url: mobileUrl,
     link: String(draft.link || '').trim(),
     alt: String(draft.alt || '').trim(),
     start_at: draft.start_at ? new Date(draft.start_at).toISOString() : '',
