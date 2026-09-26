@@ -92,7 +92,7 @@
 .promo-live-preview--crop{
   position:relative;
   margin:0!important;
-  max-height:min(58vh,540px);
+  max-height:none;
   overflow:hidden;
   border:2px solid #fff;
   outline:1px solid #aebbd0;
@@ -166,6 +166,7 @@
 .promo-editor-live-help{padding:9px 10px;border-radius:9px;background:#eef4ff;color:#40506a!important}
 .promo-live-preview--crop.desktop{width:100%}
 .promo-live-preview--crop.mobile{width:100%}
+.promo-live-preview--crop{height:auto!important}
 
 @media(max-width:1050px){
   .promo-live-preview--crop{max-height:none}
