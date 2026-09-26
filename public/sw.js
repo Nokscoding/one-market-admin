@@ -1,3 +1,6 @@
+self.addEventListener('install', () => self.skipWaiting())
+self.addEventListener('activate', event => event.waitUntil(self.clients.claim()))
+
 const ICON = 'https://res.cloudinary.com/nks-services/image/upload/v1788106209/one-market-logo.webp'
 
 self.addEventListener('push', event => {
