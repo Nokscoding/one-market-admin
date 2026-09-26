@@ -7,7 +7,7 @@ import { dateTime, TICKET_LABELS } from '../lib/format'
 import { useLoad } from '../lib/useLoad'
 import { Badge, ConfirmModal, Empty, Info, Loader, SearchBar, SectionHead, Table } from '../components/UI'
 
-function reporterLabel(ticket){return ticket.reporter_name||ticket.reporter_email||ticket.user_id?.slice(0,8)||'Utilisateur'}
+function reporterLabel(ticket){if(ticket?.source==='moderation')return ticket.target_name||ticket.target_email||ticket.target_user_id?.slice(0,8)||'Vendeur';return ticket.reporter_name||ticket.reporter_email||ticket.user_id?.slice(0,8)||'Utilisateur'}
 
 export function SupportPage(){
   const [filter,setFilter]=useState('open'); const [search,setSearch]=useState('')
