@@ -62,8 +62,10 @@ function PromoCropStage({ item, mode, height, fit = 'cover', onChange, readOnly 
     if (drag.current?.pointerId === event.pointerId) drag.current = null
   }
 
+  const referenceWidth = mode === 'mobile' ? 390 : 1280
   const style = {
-    '--promo-preview-height': `${height}px`,
+    height: 'auto',
+    aspectRatio: `${referenceWidth} / ${height}`,
     '--promo-preview-fit': fit,
     '--promo-preview-x': `${crop.x}%`,
     '--promo-preview-y': `${crop.y}%`,
@@ -274,7 +276,7 @@ export function HomePromotionsSettings() {
             />
 
             <p className="promo-editor-live-help">
-              Glissez directement le média dans le cadre. Le rectangle correspond à ce que les clients verront. Le cadrage {preview === 'desktop' ? 'Desktop' : 'Mobile'} n’affecte pas l’autre format.
+              Glissez directement le média dans le cadre. Cet aperçu reprend le ratio réel One Market ({preview === 'desktop' ? `1280 × ${config.desktop_height}px` : `390 × ${config.mobile_height}px`}). Ce que vous voyez ici correspond au cadrage publié. Le cadrage {preview === 'desktop' ? 'Desktop' : 'Mobile'} n’affecte pas l’autre format.
             </p>
           </aside>
         </div>
