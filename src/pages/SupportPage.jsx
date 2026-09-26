@@ -20,8 +20,8 @@ export function SupportPage(){
     <SearchBar value={search} onChange={setSearch} placeholder="Ticket, client, sujet ou catégorie"/>
     <div className="filter-row">{['open','in_progress','waiting_customer','escalated','resolved','closed','all'].map(status=><button type="button" className={filter===status?'active':''} onClick={()=>setFilter(status)} key={status}>{status==='all'?'Tous':TICKET_LABELS[status]}</button>)}</div>
     {error&&<div className="alert bad">{error}</div>}
-    {loading?<Loader/>:<Table headers={['Ticket','Plaignant','Sujet','Catégorie','Priorité','Statut','Date','']} rows={visible.map(ticket=>[
-      ticket.ticket_number||ticket.id.slice(0,8),<div><strong>{reporterLabel(ticket)}</strong><span>{ticket.reporter_role||ticket.reporter_marketplace_role||'client'} · {ticket.reporter_phone||ticket.reporter_profile_phone||'sans téléphone'}</span></div>,ticket.subject,ticket.category,<Badge value={ticket.priority}/>,<Badge value={ticket.status} label={TICKET_LABELS[ticket.status]}/>,dateTime(ticket.created_at),<NavLink className="row-link" to={`/support/${ticket.id}`}>Traiter</NavLink>
+    {loading?<Loader/>:<Table headers={['Ticket','Utilisateur','Sujet','Catégorie','Priorité','Statut','Date','']} rows={visible.map(ticket=>[
+      ticket.ticket_number||ticket.id.slice(0,8),<div><strong>{reporterLabel(ticket)}</strong><span>{ticket.source==='moderation'?'vendeur · modération':`${ticket.reporter_role||ticket.reporter_marketplace_role||'client'} · ${ticket.reporter_phone||ticket.reporter_profile_phone||'sans téléphone'}`}</span></div>,ticket.subject,ticket.category,<Badge value={ticket.priority}/>,<Badge value={ticket.status} label={TICKET_LABELS[ticket.status]}/>,dateTime(ticket.created_at),<NavLink className="row-link" to={`/support/${ticket.id}`}>Traiter</NavLink>
     ])}/>} 
   </>
 }
