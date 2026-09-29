@@ -9,7 +9,7 @@ import { adminUserError, logAdminError } from '../lib/userErrors'
 import { Badge, ConfirmModal, Empty, Info, Loader, SearchBar, SectionHead, Table } from '../components/UI'
 
 const ORDER_FILTERS = ['all','pending_confirmation','confirmed','preparing','ready','picked_up','out_for_delivery','delivered','partially_completed','problem','cancelled','failed','refused']
-const DELIVERY_STATUSES = ['pending','preparing','ready','picked_up','out_for_delivery','delivered','failed','problem']
+const DELIVERY_STATUSES = ['pending','preparing','ready','intercity_transit','arrived_destination','picked_up','out_for_delivery','delivered','failed','problem']
 const DELIVERY_ASSIGNMENT_LABELS = { assigned:'Assignée', accepted:'Acceptée', picking_up:'Récupération', picked_up:'Récupérée', out_for_delivery:'En livraison', delivered:'Livrée', problem:'Problème', cancelled:'Annulée' }
 
 function paymentLabel(order) {
@@ -20,7 +20,7 @@ export function OrdersPage() {
   const [status, setStatus] = useState('all')
   const [search, setSearch] = useState('')
   const { data, loading, error } = useLoad(async () => {
-    let query = supabase.from('orders').select('id,order_number,status,delivery_method,delivery_fee_cdf,payment_method,payment_status,items_total,shipping_snapshot,created_at').order('created_at', { ascending: false }).limit(250)
+    let query = supabase.from('orders').select('id,order_number,status,delivery_method,delivery_fee_cdf,payment_method,payment_status,items_total,shipping_snapshot,created_at,is_intercity,origin_cities,destination_city,intercity_surcharge_cdf,estimated_delivery_min_days,estimated_delivery_max_days,logistics_status').order('created_at', { ascending: false }).limit(250)
     if (status !== 'all') query = query.eq('status', status)
     const { data: orders, error } = await query
     if (error) throw error
@@ -53,7 +53,7 @@ export function OrderDetailPage() {
   const [paymentStatus, setPaymentStatus] = useState('')
   const [actionError, setActionError] = useState('')
   const { data, loading, reload } = useLoad(async () => {
-    const { data: order, error } = await supabase.from('orders').select('id,order_number,customer_id,address_id,status,payment_method,payment_status,items_total,delivery_total,grand_total,currency,shipping_snapshot,customer_note,created_at,updated_at,delivery_method,delivery_fee_cdf,delivery_currency,logistics_status').eq('id', id).single()
+    const { data: order, error } = await supabase.from('orders').select('id,order_number,customer_id,address_id,status,payment_method,payment_status,items_total,delivery_total,grand_total,currency,shipping_snapshot,customer_note,created_at,updated_at,delivery_method,delivery_fee_cdf,delivery_currency,logistics_status,is_intercity,origin_cities,destination_city,intercity_surcharge_cdf,estimated_delivery_min_days,estimated_delivery_max_days,intercity_arrived_at').eq('id', id).single()
     if (error) throw error
     const [sellerOrders, items, events, tickets] = await Promise.all([
       supabase.from('seller_orders').select('id,order_id,store_id,seller_order_number,status,subtotal,delivery_fee,total,currency,refusal_reason,created_at,updated_at,delivery_method,delivery_fee_cdf,delivery_currency,logistics_status,commission_percent,commission_amount,seller_net_amount,settlement_status').eq('order_id', id).order('created_at'),
@@ -77,7 +77,7 @@ export function OrderDetailPage() {
     ? [order.payment_status]
     : order.payment_method === 'mobile_money'
       ? (order.payment_status === 'payment_submitted' ? ['payment_submitted','paid','cancelled'] : ['awaiting_mobile_money','payment_submitted','paid','cancelled'])
-      : ['pending_on_delivery','cash_received','cancelled']
+      : ['pending_on_delivery','cancelled']
   const commission = data.sellerOrders.reduce((sum, row) => sum + Number(row.commission_amount || 0), 0)
   const sellerNet = data.sellerOrders.reduce((sum, row) => sum + Number(row.seller_net_amount || 0), 0)
 
@@ -97,7 +97,7 @@ export function OrderDetailPage() {
     <SectionHead eyebrow="Commande" title={order.order_number} desc={dateTime(order.created_at)} actions={canManageFinance && !paymentFinal && <button className="btn primary" type="button" onClick={openPayment}><Banknote size={17}/>Gérer le paiement</button>}/>
     {actionError && <div className="alert bad">{actionError}</div>}
     <div className="detail-grid">
-      <section className="panel detail-card"><h3>Résumé</h3><Info label="Statut" value={<Badge value={order.status} label={ORDER_LABELS[order.status] || 'En cours'}/>}/><Info label="Produits" value={usd(order.items_total)}/><Info label="Livraison" value={`${order.delivery_method === 'express' ? 'Express' : 'Normale'} · ${cdf(order.delivery_fee_cdf)}`}/><Info label="Méthode" value={order.payment_method === 'mobile_money' ? 'Mobile Money' : 'Paiement à la livraison'}/><Info label="Paiement" value={paymentLabel(order)}/><Info label="Logistique" value={LOGISTICS_LABELS[order.logistics_status] || 'En cours'}/></section>
+      <section className="panel detail-card"><h3>Résumé</h3><Info label="Statut" value={<Badge value={order.status} label={ORDER_LABELS[order.status] || 'En cours'}/>}/><Info label="Produits" value={usd(order.items_total)}/><Info label="Livraison" value={`${order.delivery_method === 'express' ? 'Express' : 'Normale'} · ${cdf(order.delivery_fee_cdf)}`}/><Info label="Méthode" value={order.payment_method === 'mobile_money' ? 'Mobile Money' : 'Paiement à la livraison'}/><Info label="Paiement" value={paymentLabel(order)}/><Info label="Logistique" value={LOGISTICS_LABELS[order.logistics_status] || 'En cours'}/>{order.is_intercity&&<><Info label="Transport inter-ville" value={`${(order.origin_cities||[]).join(', ')||'Départ'} → ${order.destination_city||order.shipping_snapshot?.city||'Destination'}`}/><Info label="Estimation" value={`${order.estimated_delivery_min_days||3}–${order.estimated_delivery_max_days||7} jours · +${cdf(order.intercity_surcharge_cdf||0)}`}/></>}</section>
       <section className="panel detail-card"><h3>Livraison</h3><Info label="Client" value={order.shipping_snapshot?.full_name || '—'}/><Info label="Téléphone" value={order.shipping_snapshot?.phone || '—'}/><Info label="Adresse" value={[order.shipping_snapshot?.address_line1, order.shipping_snapshot?.district, order.shipping_snapshot?.city].filter(Boolean).join(', ') || '—'}/><Info label="Note" value={order.customer_note || '—'}/></section>
     </div>
     <section className="panel financial-split"><h3>Répartition financière</h3><div className="finance-status-grid"><div><span>Produits</span><strong>{usd(order.items_total)}</strong></div><div><span>Commission One Market</span><strong>{usd(commission)}</strong></div><div><span>À reverser vendeurs</span><strong>{usd(sellerNet)}</strong></div><div><span>Livraison</span><strong>{cdf(order.delivery_fee_cdf)}</strong></div></div></section>
@@ -123,7 +123,7 @@ export function DeliveryPage() {
 
   const { data, loading, reload } = useLoad(async () => {
     const [ordersResult, couriersResult, assignmentsResult, incidentsResult] = await Promise.all([
-      supabase.from('orders').select('id,order_number,status,delivery_method,delivery_fee_cdf,logistics_status,payment_method,payment_status,items_total,shipping_snapshot,created_at').order('created_at', { ascending: false }).limit(250),
+      supabase.from('orders').select('id,order_number,status,delivery_method,delivery_fee_cdf,logistics_status,payment_method,payment_status,items_total,shipping_snapshot,created_at,is_intercity,origin_cities,destination_city,intercity_surcharge_cdf,estimated_delivery_min_days,estimated_delivery_max_days,intercity_arrived_at').order('created_at', { ascending: false }).limit(250),
       supabase.rpc('erp_list_couriers'),
       supabase.from('delivery_assignments').select('id,order_id,courier_user_id,status,collection_status,product_cash_collected_usd,delivery_fee_collected_cdf,assigned_at,delivered_at,remitted_at').order('assigned_at',{ascending:false}),
       supabase.from('delivery_incidents').select('id,assignment_id,order_id,courier_user_id,incident_type,description,status,created_at').eq('status','open').order('created_at',{ascending:false}),
@@ -190,6 +190,17 @@ export function DeliveryPage() {
     reload()
   }
 
+  async function markIntercityArrived(order){
+    if(!window.confirm(`Confirmer que ${order.order_number} est arrivée à ${order.destination_city || order.shipping_snapshot?.city || 'la ville de destination'} ?`)) return
+    setActionError('')
+    const {error}=await supabase.rpc('erp_mark_intercity_arrived',{p_order_id:order.id})
+    if(error){
+      logAdminError('delivery-intercity-arrived',error)
+      return setActionError(adminUserError(error,'Impossible de confirmer l’arrivée inter-ville.'))
+    }
+    reload()
+  }
+
   async function confirmRemittance(assignment){
     if(!window.confirm('Confirmer que l’argent produits encaissé par le livreur a bien été remis à One Market ?')) return
     const {error}=await supabase.rpc('erp_confirm_courier_remittance',{p_assignment_id:assignment.id})
@@ -245,7 +256,8 @@ export function DeliveryPage() {
         </div>
         <Badge value={order.logistics_status} label={LOGISTICS_LABELS[order.logistics_status] || 'En cours'}/>
         <div className="button-row compact">
-          {canManage && !final && <button className="btn primary" type="button" onClick={() => openAssign(order)}>{assignment ? 'Réassigner' : 'Assigner'}</button>}
+          {canManage && order.is_intercity && order.logistics_status==='intercity_transit' && <button className="btn gold" type="button" onClick={()=>markIntercityArrived(order)}>Arrivée dans la ville</button>}
+          {canManage && !final && (!order.is_intercity || order.logistics_status==='arrived_destination') && <button className="btn primary" type="button" onClick={() => openAssign(order)}>{assignment ? 'Réassigner' : 'Assigner'}</button>}
           {canManage && assignment && !['picked_up','out_for_delivery','delivered'].includes(assignment.status) && <button className="btn ghost" type="button" onClick={()=>unassign(order)}>Retirer</button>}
           {canFinance && assignment?.status==='delivered' && assignment.collection_status==='collected' && <button className="btn gold" type="button" onClick={()=>confirmRemittance(assignment)}>Confirmer remise NKS</button>}
           {canManage && <button className="btn ghost" type="button" onClick={() => openUpdate(order)}>Forcer statut</button>}
@@ -270,7 +282,7 @@ export function DeliveryPage() {
     </ConfirmModal>
 
     <ConfirmModal open={modal?.type==='assign'} title="Assigner un livreur" text={modal?.order?.order_number} onClose={()=>setModal(null)} onConfirm={saveAssign}>
-      <label>Livreur<select value={courierId} onChange={e=>setCourierId(e.target.value)}><option value="">Choisir…</option>{(data?.couriers||[]).filter(row=>row.status==='active').map(row=><option key={row.user_id} value={row.user_id}>{row.full_name} · {row.employee_code} · {row.active_assignments || 0} course(s)</option>)}</select></label>
+      <label>Livreur<select value={courierId} onChange={e=>setCourierId(e.target.value)}><option value="">Choisir…</option>{(data?.couriers||[]).filter(row=>row.status==='active' && (!modal?.order?.destination_city || !row.city || row.city.toLowerCase()===modal.order.destination_city.toLowerCase())).map(row=><option key={row.user_id} value={row.user_id}>{row.full_name} · {row.city || 'ville non définie'} · {row.employee_code} · {row.active_assignments || 0} course(s)</option>)}</select></label>
       {!(data?.couriers||[]).some(row=>row.status==='active') && <div className="alert bad">Aucun livreur actif. Créez d’abord un compte dans « Livreurs ».</div>}
     </ConfirmModal>
 
