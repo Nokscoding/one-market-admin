@@ -8,6 +8,8 @@ export const ORDER_LABELS = {
   confirmed: 'Confirmée',
   preparing: 'En préparation',
   ready: 'Prête',
+  intercity_transit: 'Transport inter-ville',
+  arrived_destination: 'Arrivée dans la ville',
   picked_up: 'Récupérée par le livreur',
   out_for_delivery: 'En livraison',
   delivered: 'Livrée',
@@ -53,7 +55,7 @@ export const TICKET_LABELS = {
 export function tone(value) {
   if (['approved','active','delivered','cash_received','paid','resolved'].includes(value)) return 'ok'
   if (['rejected','suspended','disabled','failed','cancelled','refused','closed','refunded'].includes(value)) return 'bad'
-  if (['pending','pending_confirmation','under_review','in_progress','ready','preparing','picked_up','out_for_delivery','problem','partially_completed','needs_information','escalated','payment_submitted','pending_on_delivery','scheduled','awaiting_mobile_money'].includes(value)) return 'warn'
+  if (['pending','pending_confirmation','under_review','in_progress','ready','preparing','picked_up','out_for_delivery','intercity_transit','arrived_destination','problem','partially_completed','needs_information','escalated','payment_submitted','pending_on_delivery','scheduled','awaiting_mobile_money'].includes(value)) return 'warn'
   return 'neutral'
 }
 
