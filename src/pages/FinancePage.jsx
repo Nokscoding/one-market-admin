@@ -51,6 +51,26 @@ export function FinancePage() {
     if (error) return setActionError(adminUserError(error))
     setPaymentModal(null); reload()
   }
+  function manageRequest(request) {
+    setActionError('')
+    setForm(current => ({ ...current, status: request.status === 'requested' ? 'approved' : request.status, note: request.admin_note || '', payout_id: request.payout_id || '' }))
+    setRequestModal(request)
+  }
+
+  async function saveRequest() {
+    if (!requestModal) return
+    setActionError('')
+    const { error } = await supabase.rpc('erp_set_seller_payout_request_status', {
+      p_request_id: requestModal.id,
+      p_status: form.status,
+      p_admin_note: form.note || null,
+      p_payout_id: form.status === 'fulfilled' ? (form.payout_id || null) : null,
+    })
+    if (error) return setActionError(adminUserError(error))
+    setRequestModal(null)
+    reload()
+  }
+
   function openPayout(store) {
     const to = new Date(); const from = new Date(); from.setDate(from.getDate() - 30)
     setActionError('')
@@ -77,7 +97,7 @@ export function FinancePage() {
 
   return <>
     <SectionHead eyebrow="Finances" title="Centre financier" desc="Commissions, encaissements, vendeurs à payer et historique des règlements."/>
-    <div className="tabs">{[['overview','Vue d’ensemble'],['orders','Commandes'],['commissions','Commissions'],['payouts','Vendeurs à payer'],['transactions','Transactions']].map(([v,l]) => <button className={tab === v ? 'active' : ''} onClick={() => setTab(v)} key={v}>{l}</button>)}</div>
+    <div className="tabs">{[['overview','Vue d’ensemble'],['orders','Commandes'],['commissions','Commissions'],['requests','Demandes vendeurs'],['payouts','Vendeurs à payer'],['transactions','Transactions']].map(([v,l]) => <button className={tab === v ? 'active' : ''} onClick={() => setTab(v)} key={v}>{l}</button>)}</div>
     {(error || actionError) && <div className="alert bad">{error || actionError}</div>}
 
     {tab === 'overview' && <><div className="metrics-grid"><Metric icon={CircleDollarSign} label="GMV 30 jours" value={usd(m.gmv_usd)}/><Metric icon={Banknote} label="Commissions" value={usd(m.commissions_generated_usd)} sub={`encaissées ${usd(m.commissions_collected_usd)}`}/><Metric icon={WalletCards} label="Dû aux vendeurs" value={usd(m.seller_due_usd)}/><Metric icon={Zap} label="Abonnements" value={usd(m.subscription_revenue_usd)}/><Metric icon={CircleDollarSign} label="One Market Ads" value={usd(data.ads?.revenue_paid_usd)} sub={`${data.ads?.active||0} active · ${data.ads?.pending||0} en attente`}/></div><div className="dashboard-columns"><section className="panel"><h3>Encaissements</h3><div className="finance-status-grid"><div><span>COD à encaisser</span><strong>{m.cod_pending || 0}</strong></div><div><span>Mobile Money en attente</span><strong>{m.mobile_pending || 0}</strong></div><div><span>Mobile Money payés</span><strong>{m.mobile_paid || 0}</strong></div><div><span>Problèmes</span><strong>{m.payment_problems || 0}</strong></div></div></section><section className="panel"><h3>Règlements vendeurs</h3><div className="finance-status-grid"><div><span>En attente</span><strong>{m.payouts_pending || 0}</strong></div><div><span>Payés</span><strong>{usd(m.seller_paid_usd)}</strong></div><div><span>À payer</span><strong>{usd(m.seller_due_usd)}</strong></div><div><span>Livraison</span><strong>{cdf(m.delivery_revenue_cdf)}</strong></div></div></section></div></>}
@@ -86,11 +106,14 @@ export function FinancePage() {
 
     {tab === 'commissions' && <section className="panel"><h3>Commission effective par boutique</h3>{data.stores.length ? data.stores.map(store => <div className="line-item" key={store.id}><span><strong>{store.name}</strong><small>{store.commission_source === 'custom' ? 'Commission personnalisée' : 'Commission générale'}</small></span><div className="button-row compact"><strong>{Number(store.commission_percent || 0).toFixed(2)} %</strong><span>{usd(store.sales_usd)} vendus</span></div></div>) : <Empty/>}</section>}
 
+    {tab === 'requests' && <section className="panel"><h3>Demandes de versement vendeurs</h3><Table headers={['Boutique','Montant','Date','Statut','Note','']} rows={(data.requests||[]).map(request => { const store=data.stores.find(item=>item.id===request.store_id); return [store?.name||'Boutique',money(request.requested_amount,request.currency),dateTime(request.created_at),<Badge value={request.status} label={request.status==='requested'?'Demandé':request.status==='approved'?'Approuvé':request.status==='fulfilled'?'Payé':request.status==='rejected'?'Refusé':'Annulé'}/>,request.seller_note||request.admin_note||'—',canManage&&['requested','approved'].includes(request.status)?<button className="row-action" onClick={()=>manageRequest(request)}>Gérer</button>:'—'] })}/></section>}
+
     {tab === 'payouts' && <><section className="panel"><h3>Boutiques à payer</h3>{data.stores.filter(s => Number(s.seller_due_usd) > 0).length ? data.stores.filter(s => Number(s.seller_due_usd) > 0).map(store => <div className="line-item" key={store.id}><span><strong>{store.name}</strong><small>{store.owner_name || store.owner_email || 'Vendeur'}</small></span><div className="button-row compact"><strong>{usd(store.seller_due_usd)}</strong>{canManage && <button className="btn primary" onClick={() => openPayout(store)}>Créer un règlement</button>}</div></div>) : <Empty>Aucune boutique à payer.</Empty>}</section><section className="panel"><h3>Historique des règlements</h3><Table headers={['N°','Boutique','Période','Brut','Commission','Net','Statut','']} rows={data.payouts.map(p => { const store = data.stores.find(s => s.id === p.store_id); return [p.payout_number, store?.name || 'Boutique', `${new Date(p.period_start).toLocaleDateString('fr-FR')} → ${new Date(p.period_end).toLocaleDateString('fr-FR')}`, money(p.gross_amount,p.currency), money(p.commission_amount,p.currency), money(p.net_amount,p.currency), <Badge value={p.status}/>, canManage ? <button className="row-action" onClick={() => editPayout(p)}>Gérer</button> : '—'] })}/></section></>}
 
     {tab === 'transactions' && <Table headers={['Type','Référence','Montant','Statut','Date']} rows={[...data.payouts.map(p => ['Règlement vendeur',p.payout_number,money(p.net_amount,p.currency),<Badge value={p.status}/>,dateTime(p.created_at)]), ...data.orders.slice(0,100).map(o => ['Commande',o.order_number,money(o.items_total, o.currency),<Badge value={o.payment_status}/>,dateTime(o.created_at)])]}/>} 
 
     <ConfirmModal open={!!paymentModal} title="Gérer le paiement" text={paymentModal?.order_number} onClose={() => setPaymentModal(null)} onConfirm={savePayment}><label>Statut<select value={form.status} onChange={e => setForm({...form,status:e.target.value})}>{paymentModal?.statuses?.map(s => <option key={s} value={s}>{statusLabel(s)}</option>)}</select></label></ConfirmModal>
+    <ConfirmModal open={!!requestModal} title="Gérer la demande vendeur" text={requestModal ? money(requestModal.requested_amount,requestModal.currency) : ''} onClose={() => setRequestModal(null)} onConfirm={saveRequest}><div className="form-grid"><label>Décision<select value={form.status} onChange={e=>setForm({...form,status:e.target.value,payout_id:''})}><option value="approved">Approuver</option><option value="rejected">Refuser</option><option value="fulfilled">Marquer payée</option></select></label>{form.status==='fulfilled'&&<label>Règlement payé<select value={form.payout_id} onChange={e=>setForm({...form,payout_id:e.target.value})}><option value="">Choisir…</option>{data.payouts.filter(p=>p.store_id===requestModal?.store_id&&p.status==='paid').map(p=><option key={p.id} value={p.id}>{p.payout_number} · {money(p.net_amount,p.currency)}</option>)}</select></label>}<label className="wide">Note ERP<textarea rows={3} value={form.note} onChange={e=>setForm({...form,note:e.target.value})}/></label></div></ConfirmModal>
     <ConfirmModal open={payoutModal?.kind === 'create'} title="Créer un règlement vendeur" text={payoutModal?.store?.name} onClose={() => setPayoutModal(null)} onConfirm={createPayout}><div className="form-grid"><label>Du<input type="date" value={form.from} onChange={e => setForm({...form,from:e.target.value})}/></label><label>Au<input type="date" value={form.to} onChange={e => setForm({...form,to:e.target.value})}/></label><label>Moyen<select value={form.method} onChange={e => setForm({...form,method:e.target.value})}><option value="mobile_money">Mobile Money</option><option value="bank">Banque</option><option value="cash">Cash</option><option value="other">Autre</option></select></label><label>Note<input value={form.note} onChange={e => setForm({...form,note:e.target.value})}/></label></div></ConfirmModal>
     <ConfirmModal open={payoutModal?.kind === 'status'} title="Mettre à jour le règlement" text={payoutModal?.payout?.payout_number} onClose={() => setPayoutModal(null)} onConfirm={savePayout}><div className="form-grid"><label>Statut<select value={form.status} onChange={e => setForm({...form,status:e.target.value})}>{['pending','approved','paid','failed','cancelled'].map(s => <option key={s} value={s}>{statusLabel(s)}</option>)}</select></label><label>Référence<input value={form.reference} onChange={e => setForm({...form,reference:e.target.value})} placeholder="Transaction Mobile Money / banque"/></label><label className="wide">Note<textarea rows={3} value={form.note} onChange={e => setForm({...form,note:e.target.value})}/></label></div></ConfirmModal>
   </>
