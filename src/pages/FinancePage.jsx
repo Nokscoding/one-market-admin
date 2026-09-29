@@ -15,29 +15,32 @@ export function FinancePage() {
   const [tab, setTab] = useState('overview')
   const [paymentModal, setPaymentModal] = useState(null)
   const [payoutModal, setPayoutModal] = useState(null)
+  const [requestModal, setRequestModal] = useState(null)
   const [actionError, setActionError] = useState('')
-  const [form, setForm] = useState({ status: '', reference: '', note: '', method: 'mobile_money', from: '', to: '' })
+  const [form, setForm] = useState({ status: '', reference: '', note: '', method: 'mobile_money', from: '', to: '', payout_id: '' })
   const { data, loading, error, reload } = useLoad(async () => {
-    const [{ data: dashboard, error: dashError }, { data: orders, error: orderError }, { data: payouts, error: payoutError }, { data: stores, error: storeError }, { data: ads, error: adsError }] = await Promise.all([
+    const [{ data: dashboard, error: dashError }, { data: orders, error: orderError }, { data: payouts, error: payoutError }, { data: requests, error: requestError }, { data: stores, error: storeError }, { data: ads, error: adsError }] = await Promise.all([
       supabase.rpc('erp_finance_dashboard', { p_from: null, p_to: null }),
       supabase.from('orders').select('id,order_number,status,payment_method,payment_status,currency,items_total,delivery_fee_cdf,created_at').order('created_at', { ascending: false }).limit(200),
       supabase.from('seller_payouts').select('*').order('created_at', { ascending: false }).limit(200),
+      supabase.from('seller_payout_requests').select('*').order('created_at',{ascending:false}).limit(200),
       supabase.rpc('erp_stores_overview', { p_search: null, p_status: null, p_limit: 250, p_offset: 0 }),
       supabase.rpc('erp_ads_finance_summary'),
     ])
     if (dashError) throw dashError
     if (orderError) throw orderError
     if (payoutError) throw payoutError
+    if (requestError) throw requestError
     if (storeError) throw storeError
     if (adsError) throw adsError
-    return { dashboard: dashboard || {}, orders: orders || [], payouts: payouts || [], stores: stores || [], ads: ads || {} }
+    return { dashboard: dashboard || {}, orders: orders || [], payouts: payouts || [], requests: requests || [], stores: stores || [], ads: ads || {} }
   }, [])
   if (loading) return <Loader/>
   if (error || !data) return <div className="alert bad" role="alert">{error || 'Impossible de charger les finances.'}<button className="btn ghost" onClick={reload}>Réessayer</button></div>
   const m = data.dashboard?.metrics || {}
 
   function openPayment(order) {
-    const statuses = order.payment_method === 'mobile_money' ? ['awaiting_mobile_money', 'payment_submitted', 'paid', 'cancelled'] : ['pending_on_delivery', 'cash_received', 'cancelled']
+    const statuses = order.payment_method === 'mobile_money' ? ['awaiting_mobile_money', 'payment_submitted', 'paid', 'cancelled'] : ['pending_on_delivery', 'cancelled']
     setActionError('')
     setForm({ status: order.payment_status, reference: '', note: '', method: order.payment_method, from: '', to: '' })
     setPaymentModal({ ...order, statuses })
