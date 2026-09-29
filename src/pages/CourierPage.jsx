@@ -95,6 +95,8 @@ export function CouriersPage() {
     full_name: '',
     email: '',
     phone: '',
+    country_code: 'CD',
+    city: 'Lubumbashi',
     vehicle_type: 'moto',
     vehicle_label: '',
     temporary_password: '',
@@ -124,6 +126,8 @@ export function CouriersPage() {
       full_name: '',
       email: '',
       phone: '',
+      country_code: 'CD',
+      city: 'Lubumbashi',
       vehicle_type: 'moto',
       vehicle_label: '',
       temporary_password: generatePassword(),
@@ -132,8 +136,8 @@ export function CouriersPage() {
   }
 
   async function createCourier() {
-    if (!form.full_name.trim() || !form.email.trim() || form.temporary_password.length < 10) {
-      return setError('Nom, email et mot de passe temporaire sont obligatoires.')
+    if (!form.full_name.trim() || !form.email.trim() || !form.city.trim() || form.temporary_password.length < 10) {
+      return setError('Nom, email, ville et mot de passe temporaire sont obligatoires.')
     }
     setBusy(true)
     setError('')
@@ -143,6 +147,8 @@ export function CouriersPage() {
         full_name: form.full_name.trim(),
         email: form.email.trim(),
         phone: form.phone.trim(),
+        country_code: form.country_code,
+        city: form.city.trim(),
         vehicle_type: form.vehicle_type,
         vehicle_label: form.vehicle_label.trim(),
         temporary_password: form.temporary_password,
@@ -212,10 +218,11 @@ export function CouriersPage() {
     </section>}
 
     {loading ? <Loader/> : couriers.length ? <Table
-      headers={['Livreur','Contact','Véhicule','Courses actives','Statut','Dernière connexion','']}
+      headers={['Livreur','Contact','Ville','Véhicule','Courses actives','Statut','Dernière connexion','']}
       rows={couriers.map(row => [
         <div><strong>{row.full_name}</strong><span>{row.employee_code}</span></div>,
         <div><strong>{row.phone || '—'}</strong><span>{row.email || '—'}</span></div>,
+        <div><strong>{row.city || 'Non définie'}</strong><span>{row.country_code === 'US' ? 'États-Unis' : 'RDC'}</span></div>,
         <div><strong>{row.vehicle_type || '—'}</strong><span>{row.vehicle_label || '—'}</span></div>,
         row.active_assignments || 0,
         <Badge value={row.status}/>,
@@ -237,6 +244,8 @@ export function CouriersPage() {
         <label>Nom complet<input value={form.full_name} onChange={e=>setForm({...form,full_name:e.target.value})}/></label>
         <label>Email<input type="email" value={form.email} onChange={e=>setForm({...form,email:e.target.value})}/></label>
         <label>Téléphone<input value={form.phone} onChange={e=>setForm({...form,phone:e.target.value})}/></label>
+        <label>Pays<select value={form.country_code} onChange={e=>setForm({...form,country_code:e.target.value})}><option value="CD">RDC</option><option value="US">États-Unis</option></select></label>
+        <label>Ville<input required value={form.city} onChange={e=>setForm({...form,city:e.target.value})} placeholder="Ex. Lubumbashi"/></label>
         <label>Véhicule<select value={form.vehicle_type} onChange={e=>setForm({...form,vehicle_type:e.target.value})}><option value="moto">Moto</option><option value="voiture">Voiture</option><option value="velo">Vélo</option><option value="pied">À pied</option><option value="autre">Autre</option></select></label>
         <label className="wide">Référence véhicule<input value={form.vehicle_label} onChange={e=>setForm({...form,vehicle_label:e.target.value})} placeholder="Ex. Moto Haojue noire · plaque…"/></label>
         <label className="wide">Mot de passe temporaire<input value={form.temporary_password} onChange={e=>setForm({...form,temporary_password:e.target.value})}/></label>
