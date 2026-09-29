@@ -249,6 +249,7 @@ export function CouriersPage() {
 export default function CourierPage() {
   const { user, staff, signOut } = useAuth()
   const [deliveries, setDeliveries] = useState([])
+  const [availableDeliveries, setAvailableDeliveries] = useState([])
   const [profile, setProfile] = useState(null)
   const [tab, setTab] = useState('home')
   const [loading, setLoading] = useState(true)
@@ -272,15 +273,22 @@ export default function CourierPage() {
   const load = useCallback(async ({ silent = false } = {}) => {
     if (!silent) setLoading(true)
     setError('')
-    const [deliveriesResult, profileResult] = await Promise.all([
+    const [deliveriesResult, availableResult, profileResult] = await Promise.all([
       supabase.rpc('courier_my_deliveries'),
-      supabase.from('courier_profiles').select('employee_code,phone,vehicle_type,vehicle_label,status,is_available').maybeSingle(),
+      supabase.rpc('courier_available_deliveries'),
+      supabase.from('courier_profiles').select('employee_code,phone,vehicle_type,vehicle_label,status,is_available,country_code,city').maybeSingle(),
     ])
     if (deliveriesResult.error) {
       logAdminError('courier-deliveries', deliveriesResult.error)
       setError('Impossible de charger vos livraisons.')
     } else {
       setDeliveries(deliveriesResult.data || [])
+    }
+    if (availableResult.error) {
+      logAdminError('courier-available-deliveries', availableResult.error)
+      setAvailableDeliveries([])
+    } else {
+      setAvailableDeliveries(availableResult.data || [])
     }
     if (!profileResult.error) setProfile(profileResult.data || null)
     if (!silent) setLoading(false)
@@ -454,9 +462,13 @@ export default function CourierPage() {
       .reduce((sum, item) => sum + Number(item.product_cash_collected_usd || 0), 0),
     [deliveries],
   )
-  const deliveryFeesTodayCdf = useMemo(
-    () => deliveredToday.reduce((sum, item) => sum + Number(item.delivery_fee_collected_cdf || 0), 0),
+  const courierEarningsTodayCdf = useMemo(
+    () => deliveredToday.reduce((sum, item) => sum + Number(item.courier_earning_cdf || 0), 0),
     [deliveredToday],
+  )
+  const courierEarningsTotalCdf = useMemo(
+    () => deliveredDeliveries.reduce((sum, item) => sum + Number(item.courier_earning_cdf || 0), 0),
+    [deliveredDeliveries],
   )
   const nextDelivery = activeDeliveries[0] || null
   const dateLabel = new Intl.DateTimeFormat('fr-FR', { weekday:'long', day:'numeric', month:'long' }).format(new Date())
@@ -506,6 +518,40 @@ export default function CourierPage() {
       return setError('Impossible de modifier votre disponibilité.')
     }
     setProfile(current => ({ ...current, ...(data || {}), is_available: next }))
+  }
+
+  async function claimAvailableDelivery(item) {
+    if (!item?.order_id || busy) return
+    setBusy(`claim-${item.order_id}`)
+    setError('')
+    const { error: claimError } = await supabase.rpc('courier_claim_delivery', { p_order_id: item.order_id })
+    setBusy('')
+    if (claimError) {
+      logAdminError('courier-claim', claimError)
+      const raw = claimError.message || ''
+      return setError(raw.includes('DELIVERY_ALREADY_ASSIGNED')
+        ? 'Cette course vient d’être prise par un autre livreur.'
+        : raw.includes('DELIVERY_CITY_MISMATCH')
+          ? 'Cette course n’est pas dans votre ville.'
+          : 'Impossible d’accepter cette course pour le moment.')
+    }
+    setTab('active')
+    await load({ silent: true })
+  }
+
+  function renderAvailableDelivery(item) {
+    const shipping = item.shipping || {}
+    return <article className="courier-available-card" key={item.order_id}>
+      <div className="courier-available-top">
+        <div><span>Course disponible</span><strong>{item.order_number}</strong><small>{item.delivery_method === 'express' ? 'Express' : 'Normale'} · {item.pickup_count || 1} retrait{Number(item.pickup_count || 1) > 1 ? 's' : ''}</small></div>
+        <div><b>{cdf(item.delivery_fee_cdf)}</b><small>frais client</small></div>
+      </div>
+      <div className="courier-available-route"><Store size={16}/><span>{item.first_pickup_city || 'Boutique'}</span><ChevronRight size={16}/><MapPin size={16}/><strong>{item.destination_city || shipping.city || 'Destination'}</strong></div>
+      {item.is_intercity && <div className="courier-available-intercity"><Route size={16}/>Arrivée inter-ville confirmée · livraison locale à effectuer</div>}
+      <button className="courier-primary courier-claim-button" type="button" disabled={busy === `claim-${item.order_id}` || !profile?.is_available} onClick={() => claimAvailableDelivery(item)}>
+        <Bike size={18}/>{busy === `claim-${item.order_id}` ? 'Attribution…' : 'Accepter cette course'}
+      </button>
+    </article>
   }
 
   async function runAction(item, action) {
@@ -729,7 +775,7 @@ export default function CourierPage() {
         <div className="courier-welcome-copy">
           <span>{dateLabel}</span>
           <h1>{staff?.full_name || 'Livreur One Market'}</h1>
-          <p>{profile?.vehicle_type ? `${profile.vehicle_type}${profile.vehicle_label ? ` · ${profile.vehicle_label}` : ''}` : 'Équipe livraison NKS'}</p>
+          <p>{profile?.vehicle_type ? `${profile.vehicle_type}${profile.vehicle_label ? ` · ${profile.vehicle_label}` : ''}` : 'Équipe livraison NKS'}{profile?.city ? ` · ${profile.city}` : ''}</p>
         </div>
         <div className="courier-welcome-art" aria-hidden="true">
           <div className="courier-orbit"></div>
@@ -774,7 +820,7 @@ export default function CourierPage() {
           <article><span className="stat-icon blue"><ListTodo size={18}/></span><small>À faire</small><strong>{activeDeliveries.length}</strong><em>courses actives</em></article>
           <article><span className="stat-icon green"><CheckCircle2 size={18}/></span><small>Livrées aujourd’hui</small><strong>{deliveredToday.length}</strong><em>commandes</em></article>
           <article><span className="stat-icon orange"><WalletCards size={18}/></span><small>À remettre NKS</small><strong>{usd(cashToRemitUsd)}</strong><em>argent produits</em></article>
-          <article><span className="stat-icon purple"><CircleDollarSign size={18}/></span><small>Livraison aujourd’hui</small><strong>{cdf(deliveryFeesTodayCdf)}</strong><em>frais encaissés</em></article>
+          <article><span className="stat-icon purple"><CircleDollarSign size={18}/></span><small>Mes gains aujourd’hui</small><strong>{cdf(courierEarningsTodayCdf)}</strong><em>{cdf(courierEarningsTotalCdf)} au total</em></article>
         </section>
 
         <section className="courier-home-section">
@@ -796,6 +842,7 @@ export default function CourierPage() {
         <section className="courier-home-section">
           <div className="courier-section-head"><div><span>Accès rapide</span><h2>Mon espace</h2></div></div>
           <div className="courier-quick-grid">
+            <button onClick={() => setTab('available')}><span className="quick-icon blue"><MapPinned size={20}/></span><strong>Disponibles</strong><small>{availableDeliveries.length} course{availableDeliveries.length > 1 ? 's' : ''}</small></button>
             <button onClick={() => setTab('active')}><span className="quick-icon blue"><Truck size={20}/></span><strong>Mes courses</strong><small>{activeDeliveries.length} en cours</small></button>
             <button onClick={() => setTab('problems')}><span className="quick-icon red"><CircleAlert size={20}/></span><strong>Problèmes</strong><small>{problemDeliveries.length} à suivre</small></button>
             <button onClick={() => setTab('history')}><span className="quick-icon purple"><History size={20}/></span><strong>Historique</strong><small>{deliveredDeliveries.length} livrées</small></button>
@@ -804,26 +851,31 @@ export default function CourierPage() {
       </> : <>
         <section className="courier-list-heading">
           <div>
-            <span>{tab === 'active' ? 'Courses' : tab === 'problems' ? 'Assistance' : 'Activité'}</span>
-            <h2>{tab === 'active' ? 'Mes livraisons' : tab === 'problems' ? 'Problèmes signalés' : 'Historique'}</h2>
+            <span>{tab === 'available' ? 'À prendre' : tab === 'active' ? 'Courses' : tab === 'problems' ? 'Assistance' : 'Activité'}</span>
+            <h2>{tab === 'available' ? 'Courses disponibles' : tab === 'active' ? 'Mes livraisons' : tab === 'problems' ? 'Problèmes signalés' : 'Historique'}</h2>
           </div>
           <button type="button" onClick={() => load()}><RefreshCw size={17}/></button>
         </section>
 
         <section className="courier-list">
-          {visible.length
-            ? visible.map(renderDeliveryCard)
-            : <div className="courier-empty">
-                <div className="empty-art"><ShieldCheck size={31}/></div>
-                <strong>{tab === 'history' ? 'Aucune livraison terminée' : tab === 'problems' ? 'Aucun problème en cours' : 'Aucune livraison assignée'}</strong>
-                <span>{tab === 'active' ? 'Les nouvelles courses apparaîtront ici automatiquement.' : 'Rien à afficher pour le moment.'}</span>
-              </div>}
+          {tab === 'available'
+            ? availableDeliveries.length
+              ? availableDeliveries.map(renderAvailableDelivery)
+              : <div className="courier-empty"><div className="empty-art"><MapPinned size={31}/></div><strong>Aucune course disponible</strong><span>{profile?.is_available ? 'Les nouvelles missions de votre ville apparaîtront ici.' : 'Passez en mode disponible pour accepter des courses.'}</span></div>
+            : visible.length
+              ? visible.map(renderDeliveryCard)
+              : <div className="courier-empty">
+                  <div className="empty-art"><ShieldCheck size={31}/></div>
+                  <strong>{tab === 'history' ? 'Aucune livraison terminée' : tab === 'problems' ? 'Aucun problème en cours' : 'Aucune livraison assignée'}</strong>
+                  <span>{tab === 'active' ? 'Les nouvelles courses assignées apparaîtront ici automatiquement.' : 'Rien à afficher pour le moment.'}</span>
+                </div>}
         </section>
       </>}
     </section>
 
     <nav className="courier-bottom-nav">
       <button className={tab === 'home' ? 'active' : ''} onClick={() => setTab('home')}><Home size={21}/><span>Accueil</span></button>
+      <button className={tab === 'available' ? 'active' : ''} onClick={() => setTab('available')}><MapPinned size={21}/><span>Dispo</span>{availableDeliveries.length > 0 && <b>{availableDeliveries.length}</b>}</button>
       <button className={tab === 'active' ? 'active' : ''} onClick={() => setTab('active')}><ListTodo size={21}/><span>Courses</span>{activeDeliveries.length > 0 && <b>{activeDeliveries.length}</b>}</button>
       <button className={tab === 'problems' ? 'active' : ''} onClick={() => setTab('problems')}><CircleAlert size={21}/><span>Problèmes</span>{problemDeliveries.length > 0 && <b>{problemDeliveries.length}</b>}</button>
       <button className={tab === 'history' ? 'active' : ''} onClick={() => setTab('history')}><History size={21}/><span>Historique</span></button>
