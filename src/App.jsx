@@ -16,6 +16,7 @@ import { ConversationsPage, SupportPage, TicketDetailPage } from './pages/Suppor
 import { FinancePage, SubscriptionsPage } from './pages/FinancePage'
 import { AuditPage, SettingsPage, StaffPage } from './pages/SystemPage'
 import PromoCodesPage from './pages/PromoCodesPage'
+import ManualPaymentsPage from './pages/ManualPaymentsPage'
 
 function AccessGate() {
   const { loading, user, staff, signOut } = useAuth()
@@ -55,6 +56,7 @@ export default function App() {
         <Route path="promotions" element={<HomePromotionsPage/>}/>
         <Route path="promo-codes" element={<PromoCodesPage/>}/>
         <Route path="orders" element={<OrdersPage/>}/>
+        <Route path="payments" element={<ManualPaymentsPage/>}/>
         <Route path="orders/:id" element={<OrderDetailPage/>}/>
         <Route path="delivery" element={<DeliveryPage/>}/>
         <Route path="couriers" element={<CouriersPage/>}/>
