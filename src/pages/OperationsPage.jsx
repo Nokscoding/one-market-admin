@@ -75,9 +75,7 @@ export function OrderDetailPage() {
   const paymentFinal = ['paid','cash_received','cancelled'].includes(order.payment_status)
   const allowedPayments = paymentFinal
     ? [order.payment_status]
-    : order.payment_method === 'mobile_money'
-      ? (order.payment_status === 'payment_submitted' ? ['payment_submitted','paid','cancelled'] : ['awaiting_mobile_money','payment_submitted','paid','cancelled'])
-      : ['pending_on_delivery','cancelled']
+    : ['pending_on_delivery','cancelled']
   const commission = data.sellerOrders.reduce((sum, row) => sum + Number(row.commission_amount || 0), 0)
   const sellerNet = data.sellerOrders.reduce((sum, row) => sum + Number(row.seller_net_amount || 0), 0)
 
@@ -94,12 +92,13 @@ export function OrderDetailPage() {
   }
 
   return <>
-    <SectionHead eyebrow="Commande" title={order.order_number} desc={dateTime(order.created_at)} actions={canManageFinance && !paymentFinal && <button className="btn primary" type="button" onClick={openPayment}><Banknote size={17}/>Gérer le paiement</button>}/>
+    <SectionHead eyebrow="Commande" title={order.order_number} desc={dateTime(order.created_at)} actions={canManageFinance && !paymentFinal && order.payment_method !== 'mobile_money' && <button className="btn primary" type="button" onClick={openPayment}><Banknote size={17}/>Gérer le paiement</button>}/>
     {actionError && <div className="alert bad">{actionError}</div>}
     <div className="detail-grid">
       <section className="panel detail-card"><h3>Résumé</h3><Info label="Statut" value={<Badge value={order.status} label={ORDER_LABELS[order.status] || 'En cours'}/>}/><Info label="Produits" value={usd(order.items_total)}/><Info label="Livraison" value={`${order.delivery_method === 'express' ? 'Express' : 'Normale'} · ${cdf(order.delivery_fee_cdf)}`}/><Info label="Méthode" value={order.payment_method === 'mobile_money' ? 'Mobile Money' : 'Paiement à la livraison'}/><Info label="Paiement" value={paymentLabel(order)}/><Info label="Logistique" value={LOGISTICS_LABELS[order.logistics_status] || 'En cours'}/>{order.is_intercity&&<><Info label="Transport inter-ville" value={`${(order.origin_cities||[]).join(', ')||'Départ'} → ${order.destination_city||order.shipping_snapshot?.city||'Destination'}`}/><Info label="Estimation" value={`${order.estimated_delivery_min_days||3}–${order.estimated_delivery_max_days||7} jours · +${cdf(order.intercity_surcharge_cdf||0)}`}/></>}</section>
       <section className="panel detail-card"><h3>Livraison</h3><Info label="Client" value={order.shipping_snapshot?.full_name || '—'}/><Info label="Téléphone" value={order.shipping_snapshot?.phone || '—'}/><Info label="Adresse" value={[order.shipping_snapshot?.address_line1, order.shipping_snapshot?.district, order.shipping_snapshot?.city].filter(Boolean).join(', ') || '—'}/><Info label="Note" value={order.customer_note || '—'}/></section>
     </div>
+    {order.payment_method === 'mobile_money' && canManageFinance && <section className="panel"><NavLink className="btn primary" to="/payments">Vérifier le paiement Mobile Money dans la file sécurisée</NavLink></section>}
     <section className="panel financial-split"><h3>Répartition financière</h3><div className="finance-status-grid"><div><span>Produits</span><strong>{usd(order.items_total)}</strong></div><div><span>Commission One Market</span><strong>{usd(commission)}</strong></div><div><span>À reverser vendeurs</span><strong>{usd(sellerNet)}</strong></div><div><span>Livraison</span><strong>{cdf(order.delivery_fee_cdf)}</strong></div></div></section>
     <section className="panel"><h3>Sous-commandes</h3>{data.sellerOrders.length ? data.sellerOrders.map(sellerOrder => <div className="line-item" key={sellerOrder.id}><span><strong>{sellerOrder.seller_order_number}</strong><small>{sellerOrder.delivery_method === 'express' ? 'Express' : 'Normale'} · livraison One Market · vendeur 0 FC · commission {Number(sellerOrder.commission_percent||0).toFixed(2)}%</small></span><div><Badge value={sellerOrder.status} label={ORDER_LABELS[sellerOrder.status] || 'En cours'}/><small>{usd(sellerOrder.seller_net_amount)} vendeur</small></div></div>) : <Empty/>}</section>
     <section className="panel"><h3>Articles</h3>{data.items.length ? data.items.map(item => <div className="line-item" key={item.id}><span><strong>{item.product_name}</strong><small>Qté {item.quantity}</small></span><strong>{usd(item.line_total)}</strong></div>) : <Empty/>}</section>
