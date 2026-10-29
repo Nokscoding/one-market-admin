@@ -1,9 +1,9 @@
 export const ROLE_LABELS = {
   SUPER_ADMIN: 'DG / Super Admin',
-  ACCOUNTANT: 'Comptable',
+  ACCOUNTANT: 'Responsable des paiements',
   MODERATOR: 'Modérateur',
   CUSTOMER_SERVICE: 'Service client',
-  OPERATIONS_MANAGER: 'Gestionnaire opérations',
+  OPERATIONS_MANAGER: 'Responsable commandes et livreurs',
   COURIER: 'Livreur',
 }
 
