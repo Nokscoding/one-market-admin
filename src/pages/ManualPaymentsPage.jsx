@@ -19,8 +19,15 @@ export default function ManualPaymentsPage() {
   const [busy, setBusy] = useState(false)
   const [errorText, setErrorText] = useState('')
   const [search, setSearch] = useState('')
+  const [backendReady, setBackendReady] = useState(false)
 
   const { data, loading, error, reload } = useLoad(async () => {
+    const { data:settings, error:settingsError } = await supabase
+      .from('marketplace_settings').select('value').eq('key','payments').maybeSingle()
+    if (settingsError) throw settingsError
+    const installed = settings?.value?.mobile_money_backend_ready === true
+    setBackendReady(installed)
+    if (!installed) return []
     const { data, error } = await supabase
       .from('manual_mobile_money_payments')
       .select('id,order_id,customer_id,provider,recipient_number,expected_amount_cdf,transaction_reference,sender_phone,status,submitted_at,created_at,review_note,verified_at')
@@ -78,6 +85,7 @@ export default function ManualPaymentsPage() {
       <div><span>À vérifier</span><strong>{pending}</strong></div>
       <div><span>Vérifiés</span><strong>{checked}</strong></div>
     </div>
+    {!backendReady && !loading && <div className="alert bad">Le module de vérification doit encore être installé dans la base OneMarket. Aucun paiement ne peut être validé ici.</div>}
     {error && <div className="alert bad">{error}</div>}
     <section className="panel">
       <div className="toolbar-row">
